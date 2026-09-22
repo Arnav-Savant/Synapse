@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.graph import router as graph_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.knowledge import router as knowledge_router
@@ -60,3 +61,4 @@ app.include_router(health_router, prefix="/api")
 app.include_router(sources_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
+app.include_router(graph_router, prefix="/api")

@@ -11,6 +11,7 @@ from app.claude_runner import git_guard, prompts, runner
 from app.jobs import store
 from app.jobs.queue import JobQueue
 from app.jobs.store import Job
+from app.services import graph_service
 
 
 async def enqueue_processing(knowledge_repo_path: Path, source_relative_path: str, queue: JobQueue) -> Job:
@@ -64,3 +65,5 @@ def _run(knowledge_repo_path: Path, job: Job, outcome: runner.ClaudeRunResult | 
         job.result_summary = outcome.result_text
         job.committed_files = committed
         job.cost_usd = outcome.total_cost_usd
+        if committed:
+            graph_service.invalidate(knowledge_repo_path)

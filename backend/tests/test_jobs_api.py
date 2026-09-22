@@ -6,6 +6,7 @@ from app.claude_runner import git_guard, runner
 from app.claude_runner.runner import ClaudeRunResult
 from app.core.config import Settings, get_settings
 from app.main import app
+from app.services import graph_service
 
 
 def _add_committed_source(repo_path, relative_path: str, content: str) -> None:
@@ -50,6 +51,39 @@ def test_process_source_job_succeeds_and_commits(tmp_path, monkeypatch, git_repo
     assert status["status"] == "succeeded"
     assert status["committed_files"] == ["knowledge/concept.md"]
     assert status["cost_usd"] == 0.01
+
+
+def test_successful_job_invalidates_graph_cache(tmp_path, monkeypatch, git_repo_factory):
+    """Phase 3 integration point: graph_service.get_graph() must reflect a
+    successful job's output without a manual invalidate() call or restart."""
+    git_repo_factory(tmp_path)
+    _add_committed_source(tmp_path, "chat-001.md", "hello")
+
+    # Prime the cache with the pre-job state (no concepts yet).
+    assert graph_service.get_graph(tmp_path).nodes == []
+
+    async def fake_run_claude(repo_path, prompt, **kwargs):
+        (repo_path / "knowledge" / "new-concept.md").write_text(
+            "---\nid: new-concept\ntitle: New Concept\n---\nbody\n"
+        )
+        return ClaudeRunResult(
+            is_error=False,
+            result_text="created new-concept.md",
+            session_id="abc",
+            total_cost_usd=0.01,
+            permission_denials=[],
+        )
+
+    monkeypatch.setattr(runner, "run_claude", fake_run_claude)
+    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+
+    with TestClient(app) as client:
+        response = client.post("/api/jobs/process", json={"source_relative_path": "chat-001.md"})
+        _wait_for_terminal_status(client, response.json()["id"])
+
+    app.dependency_overrides.clear()
+
+    assert {n.id for n in graph_service.get_graph(tmp_path).nodes} == {"new-concept"}
 
 
 def test_process_source_job_reverts_source_changes_and_fails(tmp_path, monkeypatch, git_repo_factory):
