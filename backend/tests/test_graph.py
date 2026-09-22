@@ -51,6 +51,27 @@ def test_contrasts_with_symmetric_edge_stored_once():
     assert edge.inverse_type == "contrasts-with"
 
 
+def test_symmetric_relationship_declared_on_both_sides_stored_once():
+    # CLAUDE.md tells the processing engine to declare a symmetric
+    # relationship on only one side, but a real run has been observed to
+    # declare it on both — this must not produce two edges.
+    concepts = [
+        concept("chain-of-thought-prompting", relationships=[
+            Relationship(type="related-to", target="few-shot-prompting"),
+        ]),
+        concept("few-shot-prompting", relationships=[
+            Relationship(type="related-to", target="chain-of-thought-prompting"),
+        ]),
+    ]
+
+    graph = build_graph(concepts)
+
+    assert len(graph.edges) == 1
+    edge = graph.edges[0]
+    assert edge.type == "related-to"
+    assert {edge.source, edge.target} == {"chain-of-thought-prompting", "few-shot-prompting"}
+
+
 def test_wikilink_only_implicit_edge():
     concepts = [
         concept("prompt-engineering", body="See [[few-shot-prompting]] for an example."),

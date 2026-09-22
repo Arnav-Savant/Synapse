@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { type CreateSourceInput, createSource, fetchSources } from "../api/sources";
+import { type CreateSourceResult, createSource, fetchSources } from "../api/sources";
+import { JobStatusIndicator } from "../components/jobs/JobStatusIndicator";
 import { ProcessSourceButton } from "../components/jobs/ProcessSourceButton";
 
 const inputClass =
@@ -11,14 +12,15 @@ export function Sources() {
   const queryClient = useQueryClient();
   const sourcesQuery = useQuery({ queryKey: ["sources"], queryFn: fetchSources });
 
-  const [category, setCategory] = useState("");
-  const [filename, setFilename] = useState("");
+  const [topicHint, setTopicHint] = useState("");
   const [content, setContent] = useState("");
+  const [lastSaved, setLastSaved] = useState<CreateSourceResult | null>(null);
 
   const createMutation = useMutation({
-    mutationFn: (input: CreateSourceInput) => createSource(input),
-    onSuccess: () => {
-      setFilename("");
+    mutationFn: () => createSource({ content, topicHint: topicHint.trim() || undefined }),
+    onSuccess: (result) => {
+      setLastSaved(result);
+      setTopicHint("");
       setContent("");
       void queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
@@ -26,47 +28,43 @@ export function Sources() {
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    createMutation.mutate({ category, filename, content });
+    createMutation.mutate();
   }
 
   return (
     <div className="max-w-2xl space-y-10 font-mono text-xs">
       <form onSubmit={handleSubmit} className="space-y-4">
         <h2 className="text-graphite">add source material</h2>
-        <div className="flex gap-6">
-          <input
-            className={inputClass}
-            placeholder="category — e.g. prompt-engineering"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            required
-          />
-          <input
-            className={inputClass}
-            placeholder="filename — e.g. chat-001"
-            value={filename}
-            onChange={(e) => setFilename(e.target.value)}
-            required
-          />
-        </div>
         <textarea
           className={`${inputClass} border`}
-          placeholder="paste conversation / notes / article content here"
-          rows={8}
+          placeholder="paste conversation / notes / article content here — raw is fine"
+          rows={10}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           required
+        />
+        <input
+          className={inputClass}
+          placeholder="topic (optional) — leave blank and Claude will figure out where this belongs"
+          value={topicHint}
+          onChange={(e) => setTopicHint(e.target.value)}
         />
         <button
           type="submit"
           disabled={createMutation.isPending}
           className="bg-spark px-4 py-1.5 text-ink disabled:opacity-50"
         >
-          {createMutation.isPending ? "saving…" : "save source"}
+          {createMutation.isPending ? "filing this…" : "save source"}
         </button>
         {createMutation.isError && (
           <p className="text-rose-400">
             {createMutation.error instanceof Error ? createMutation.error.message : "failed to save"}
+          </p>
+        )}
+        {lastSaved && (
+          <p className="text-graphite">
+            saved as <span className="text-paper">{lastSaved.source.relative_path}</span> — processing:{" "}
+            <JobStatusIndicator jobId={lastSaved.jobId} />
           </p>
         )}
       </form>

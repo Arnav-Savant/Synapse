@@ -20,6 +20,7 @@ from app.api.jobs import router as jobs_router
 from app.api.knowledge import router as knowledge_router
 from app.api.sources import router as sources_router
 from app.claude_runner.chat_engine import ChatEngineError
+from app.claude_runner.naming import NamingError
 from app.core.config import get_settings
 from app.jobs import store as job_store
 from app.jobs.queue import JobQueue
@@ -73,6 +74,11 @@ async def handle_frontmatter_error(request: Request, exc: FrontmatterError) -> J
 
 @app.exception_handler(ChatEngineError)
 async def handle_chat_engine_error(request: Request, exc: ChatEngineError) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
+@app.exception_handler(NamingError)
+async def handle_naming_error(request: Request, exc: NamingError) -> JSONResponse:
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 

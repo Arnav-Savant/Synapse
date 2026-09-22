@@ -1,9 +1,5 @@
 import { apiGet, apiPut } from "./client";
 
-interface KnowledgeListResponse {
-  slugs: string[];
-}
-
 export interface Relationship {
   type: string;
   target: string;
@@ -22,10 +18,6 @@ export interface KnowledgeDetail {
   relationships: Relationship[];
   body: string;
   raw_content: string;
-}
-
-export async function fetchKnowledgeSlugs(): Promise<string[]> {
-  return (await apiGet<KnowledgeListResponse>("/knowledge")).slugs;
 }
 
 export function fetchKnowledgeDetail(slug: string): Promise<KnowledgeDetail> {

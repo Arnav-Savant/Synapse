@@ -9,10 +9,14 @@ what changed for this specific run.
 def ingestion_prompt(source_relative_path: str) -> str:
     return (
         f"A new or updated source file was added at `source/{source_relative_path}`. "
-        "Follow the instructions in CLAUDE.md to update the knowledge base: "
-        "read that source file, read the relevant existing knowledge/*.md files, "
-        "then create or update the appropriate knowledge/*.md concept files. "
-        "When done, summarize which knowledge files you created or updated."
+        "It may be raw and unstructured. Follow CLAUDE.md's process in full: read "
+        "the source, survey the existing knowledge base broadly (not just the "
+        "obviously-related files), create or update the appropriate knowledge/*.md "
+        "concept files with real synthesized study notes, and — this is often the "
+        "step that gets shortchanged — add every relationship to another concept "
+        "that's actually justified by this material, for both new and existing "
+        "concepts you touch. When done, summarize which knowledge files you created "
+        "or updated and which relationships you added."
     )
 
 

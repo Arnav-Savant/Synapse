@@ -21,6 +21,13 @@ _INVERSE_LABELS = {
     "used-in": "uses",
 }
 
+# CLAUDE.md instructs the processing engine to declare a symmetric
+# relationship on only one side, but that's an instruction, not a
+# guarantee — this is the same defense-in-depth reasoning as the git
+# safety net in claude_runner/git_guard.py. Confirmed live: a real
+# processing run did declare both sides once, producing a duplicate edge.
+_SYMMETRIC_TYPES = {"contrasts-with", "related-to"}
+
 
 @dataclass(frozen=True)
 class GraphNode:
@@ -61,6 +68,10 @@ def build_graph(concepts: list[ParsedConcept]) -> Graph:
     # relationship (in either direction) — an implicit wikilink edge for a
     # pair that's already connected is a duplicate, not new information.
     connected_pairs: set[frozenset[str]] = set()
+    # (unordered pair, type) already emitted for a symmetric relationship —
+    # catches the case where both sides independently declare the same
+    # contrasts-with/related-to, which is a duplicate, not two facts.
+    symmetric_seen: set[tuple[frozenset[str], str]] = set()
 
     for concept in concepts:
         for rel in concept.relationships:
@@ -69,6 +80,12 @@ def build_graph(concepts: list[ParsedConcept]) -> Graph:
                     f"{concept.id}: relationship '{rel.type}' points at unknown concept '{rel.target}'"
                 )
                 continue
+            pair = frozenset((concept.id, rel.target))
+            if rel.type in _SYMMETRIC_TYPES:
+                symmetric_key = (pair, rel.type)
+                if symmetric_key in symmetric_seen:
+                    continue
+                symmetric_seen.add(symmetric_key)
             edges.append(
                 GraphEdge(
                     source=concept.id,
@@ -79,7 +96,7 @@ def build_graph(concepts: list[ParsedConcept]) -> Graph:
                     implicit=False,
                 )
             )
-            connected_pairs.add(frozenset((concept.id, rel.target)))
+            connected_pairs.add(pair)
 
     for concept in concepts:
         for linked_slug in extract_links(concept.body):

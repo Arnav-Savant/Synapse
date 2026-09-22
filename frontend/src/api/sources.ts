@@ -16,13 +16,27 @@ export async function fetchSources(): Promise<SourceFile[]> {
 }
 
 export interface CreateSourceInput {
-  category: string;
-  filename: string;
   content: string;
+  /** All optional — leave category/filename unset to have Claude Code
+   * decide them from the content (and topicHint, if given). */
+  category?: string;
+  filename?: string;
+  topicHint?: string;
 }
 
-export function createSource(input: CreateSourceInput): Promise<SourceFile> {
-  return apiPost<SourceFile>("/sources", input);
+export interface CreateSourceResult {
+  source: SourceFile;
+  jobId: string;
+}
+
+export async function createSource(input: CreateSourceInput): Promise<CreateSourceResult> {
+  const response = await apiPost<{ source: SourceFile; job_id: string }>("/sources", {
+    content: input.content,
+    category: input.category ?? null,
+    filename: input.filename ?? null,
+    topic_hint: input.topicHint ?? null,
+  });
+  return { source: response.source, jobId: response.job_id };
 }
 
 interface SourceContentResponse {
