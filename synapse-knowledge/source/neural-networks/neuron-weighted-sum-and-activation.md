@@ -1,1 +1,0 @@
-A neuron computes a weighted sum of its inputs plus a bias term, then applies an activation function. Weights determine how much each input matters; the bias shifts the activation threshold.
