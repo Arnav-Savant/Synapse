@@ -7,7 +7,10 @@ status: developing
 created: 2026-09-22
 updated: 2026-09-22
 sources: ["neural-networks/neuron-weights-and-bias.md"]
-relationships: []
+relationships:
+  - type: prerequisite-of
+    target: backpropagation
+    note: backprop differentiates through the neuron's forward computation (z = W·X + b, then activation), so you need that first
 ---
 
 # Artificial Neuron
