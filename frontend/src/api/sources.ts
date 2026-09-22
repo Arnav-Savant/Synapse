@@ -24,3 +24,13 @@ export interface CreateSourceInput {
 export function createSource(input: CreateSourceInput): Promise<SourceFile> {
   return apiPost<SourceFile>("/sources", input);
 }
+
+interface SourceContentResponse {
+  relative_path: string;
+  content: string;
+}
+
+export async function fetchSourceContent(relativePath: string): Promise<string> {
+  const encodedPath = relativePath.split("/").map(encodeURIComponent).join("/");
+  return (await apiGet<SourceContentResponse>(`/sources/${encodedPath}`)).content;
+}

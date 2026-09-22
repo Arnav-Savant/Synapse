@@ -61,3 +61,31 @@ def test_source_path_traversal_rejected_with_4xx(tmp_path, git_repo_factory):
     assert not (tmp_path.parent.parent / "etc" / "passwd").exists()
 
     app.dependency_overrides.clear()
+
+
+def test_get_source_content(tmp_path, git_repo_factory):
+    client = _client_for(tmp_path, git_repo_factory)
+    client.post(
+        "/api/sources",
+        json={"category": "prompt-engineering", "filename": "chat-001", "content": "hello world"},
+    )
+
+    response = client.get("/api/sources/prompt-engineering/chat-001.md")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "relative_path": "prompt-engineering/chat-001.md",
+        "content": "hello world",
+    }
+
+    app.dependency_overrides.clear()
+
+
+def test_get_missing_source_content_returns_404(tmp_path, git_repo_factory):
+    client = _client_for(tmp_path, git_repo_factory)
+
+    response = client.get("/api/sources/does-not-exist.md")
+
+    assert response.status_code == 404
+
+    app.dependency_overrides.clear()

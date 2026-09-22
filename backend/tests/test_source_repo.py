@@ -1,3 +1,5 @@
+import pytest
+
 from app.repositories import source_repo
 
 
@@ -44,3 +46,19 @@ def test_list_sources_ignores_gitkeep_and_missing_dir(tmp_path):
     (source_dir / ".gitkeep").write_text("")
 
     assert source_repo.list_sources(tmp_path) == []
+
+
+def test_read_source(tmp_path):
+    (tmp_path / "source").mkdir()
+    source_repo.write_text_source(tmp_path, "prompt-engineering", "chat-001.md", "hello world")
+
+    content = source_repo.read_source(tmp_path, "prompt-engineering/chat-001.md")
+
+    assert content == "hello world"
+
+
+def test_read_source_missing_raises(tmp_path):
+    (tmp_path / "source").mkdir()
+
+    with pytest.raises(source_repo.SourceFileNotFoundError):
+        source_repo.read_source(tmp_path, "does-not-exist.md")

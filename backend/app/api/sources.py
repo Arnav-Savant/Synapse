@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, UploadFile
 
 from app.core.config import Settings, get_settings
-from app.schemas.sources import CreateSourceRequest, SourceFileListResponse, SourceFileOut
+from app.schemas.sources import CreateSourceRequest, SourceContentResponse, SourceFileListResponse, SourceFileOut
 from app.services import source_service
 
 router = APIRouter()
@@ -32,3 +32,11 @@ async def upload_source(
     data = await file.read()
     source = source_service.upload_binary_source(settings.knowledge_repo_path, file.filename, data)
     return SourceFileOut(**vars(source))
+
+
+@router.get("/sources/{relative_path:path}", response_model=SourceContentResponse)
+def get_source_content(
+    relative_path: str, settings: Settings = Depends(get_settings)
+) -> SourceContentResponse:
+    content = source_service.read_source(settings.knowledge_repo_path, relative_path)
+    return SourceContentResponse(relative_path=relative_path, content=content)

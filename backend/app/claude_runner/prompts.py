@@ -14,3 +14,12 @@ def ingestion_prompt(source_relative_path: str) -> str:
         "then create or update the appropriate knowledge/*.md concept files. "
         "When done, summarize which knowledge files you created or updated."
     )
+
+
+def chat_prompt(message: str, concept_slug: str | None) -> str:
+    context = f" The user is currently looking at the '{concept_slug}' concept." if concept_slug else ""
+    return (
+        "Answer the following question using only the knowledge base in this "
+        f"repository (knowledge/*.md) as your source of truth. Be concise.{context} "
+        f"Question: {message}"
+    )

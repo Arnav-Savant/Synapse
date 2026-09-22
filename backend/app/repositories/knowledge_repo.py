@@ -1,9 +1,8 @@
 """Knowledge file repository: the only module that reads/writes `knowledge/`.
 
-Phase 1 only needs list/read of raw file content. Frontmatter-aware parsing
-is introduced in Phase 3 (`app/knowledge/frontmatter.py`) and layered on top
-of what this module returns, not duplicated here. The write path (Phase 5)
-is added to this module when it's needed, not before.
+Raw list/read/write of file content. Frontmatter-aware parsing is
+`app/knowledge/frontmatter.py`, layered on top of what this module returns,
+not duplicated here.
 """
 
 from pathlib import Path
@@ -33,3 +32,11 @@ def read_knowledge(knowledge_repo_path: Path, slug: str) -> str:
     if not target.is_file():
         raise KnowledgeFileNotFoundError(slug)
     return target.read_text(encoding="utf-8")
+
+
+def write_knowledge(knowledge_repo_path: Path, slug: str, content: str) -> None:
+    root = _knowledge_root(knowledge_repo_path)
+    target = resolve_within(root, f"{slug}.md")
+    if not target.is_file():
+        raise KnowledgeFileNotFoundError(slug)
+    target.write_text(content, encoding="utf-8")

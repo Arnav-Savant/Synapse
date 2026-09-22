@@ -79,3 +79,47 @@ def test_parse_rejects_missing_required_fields():
 def test_parse_rejects_invalid_yaml():
     with pytest.raises(frontmatter.FrontmatterError):
         frontmatter.parse("---\nid: [unclosed\n---\nbody")
+
+
+def test_serialize_round_trips_through_parse():
+    raw = """---
+id: prompt-injection
+title: Prompt Injection
+aliases: ["Prompt Injection Attack"]
+domains: [prompt-engineering, ai-security]
+status: developing
+created: '2026-09-22'
+updated: '2026-09-22'
+sources: [prompt-engineering/chat-001.md]
+relationships:
+  - type: subtopic-of
+    target: prompt-engineering
+  - type: example-of
+    target: few-shot-prompting
+    note: some note
+---
+
+Body text with a [[wikilink]].
+"""
+    original = frontmatter.parse(raw)
+
+    serialized = frontmatter.serialize(original)
+    reparsed = frontmatter.parse(serialized)
+
+    assert reparsed == original
+
+
+def test_serialize_omits_empty_note():
+    concept = frontmatter.parse("""---
+id: x
+title: X
+relationships:
+  - type: related-to
+    target: y
+---
+body
+""")
+
+    serialized = frontmatter.serialize(concept)
+
+    assert "note" not in serialized

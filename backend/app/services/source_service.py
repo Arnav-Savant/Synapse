@@ -20,6 +20,10 @@ def list_sources(knowledge_repo_path: Path) -> list[SourceFile]:
     return source_repo.list_sources(knowledge_repo_path)
 
 
+def read_source(knowledge_repo_path: Path, relative_path: str) -> str:
+    return source_repo.read_source(knowledge_repo_path, relative_path)
+
+
 def create_text_source(knowledge_repo_path: Path, category: str, filename: str, content: str) -> SourceFile:
     if not filename.endswith(_TEXT_EXTENSIONS):
         filename = f"{filename}.md"

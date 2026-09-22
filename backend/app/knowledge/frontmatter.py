@@ -1,10 +1,6 @@
-"""Frontmatter parsing: split a knowledge file's YAML frontmatter from its
-body and turn it into structured data. Pure function — no I/O, no
-framework dependency (docs/ARCHITECTURE.md §14.2).
-
-Only `parse()` exists for now. A `serialize()`/write path is added in
-Phase 5 when the knowledge editor actually needs to write files back —
-not built speculatively ahead of that (§14.3).
+"""Frontmatter parsing/serialization: convert between a knowledge file's
+raw text (YAML frontmatter + body) and structured data. Pure functions —
+no I/O, no framework dependency (docs/ARCHITECTURE.md §14.2).
 """
 
 from dataclasses import dataclass, field
@@ -82,3 +78,25 @@ def parse(raw_text: str) -> ParsedConcept:
 def _as_str(value: object) -> str | None:
     # YAML parses unquoted dates like `2026-09-22` as datetime.date, not str.
     return None if value is None else str(value)
+
+
+def serialize(concept: ParsedConcept) -> str:
+    """Inverse of `parse()`. Field order is fixed (not alphabetical) to
+    match the schema documented in the knowledge repo's own CLAUDE.md."""
+    data: dict[str, object] = {
+        "id": concept.id,
+        "title": concept.title,
+        "aliases": concept.aliases,
+        "domains": concept.domains,
+        "status": concept.status,
+        "created": concept.created,
+        "updated": concept.updated,
+        "sources": concept.sources,
+        "relationships": [
+            {"type": r.type, "target": r.target, **({"note": r.note} if r.note else {})}
+            for r in concept.relationships
+        ],
+    }
+    frontmatter_text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True).rstrip("\n")
+    body = concept.body.rstrip("\n")
+    return f"{_DELIMITER}\n{frontmatter_text}\n{_DELIMITER}\n\n{body}\n" if body else f"{_DELIMITER}\n{frontmatter_text}\n{_DELIMITER}\n"

@@ -16,3 +16,8 @@ class CreateSourceRequest(BaseModel):
     category: str = Field(min_length=1)
     filename: str = Field(min_length=1)
     content: str
+
+
+class SourceContentResponse(BaseModel):
+    relative_path: str
+    content: str

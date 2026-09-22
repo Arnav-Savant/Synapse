@@ -14,6 +14,10 @@ from app.repositories.paths import resolve_within
 UPLOADS_CATEGORY = "_uploads"
 
 
+class SourceFileNotFoundError(FileNotFoundError):
+    """No source file exists at the given relative path."""
+
+
 @dataclass(frozen=True)
 class SourceFile:
     category: str
@@ -63,3 +67,15 @@ def write_binary_source(knowledge_repo_path: Path, filename: str, data: bytes) -
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     return _to_source_file(root, target)
+
+
+def read_source(knowledge_repo_path: Path, relative_path: str) -> str:
+    """Read-only, for the "view sources" affordance. Non-UTF-8 bytes (e.g.
+    a PDF upload) are replaced rather than raising — good enough for a
+    read-only preview; there's no attempt to extract real text from binary
+    formats (that's explicitly out of scope, see docs/REQUIREMENTS.md §5)."""
+    root = _source_root(knowledge_repo_path)
+    target = resolve_within(root, relative_path)
+    if not target.is_file():
+        raise SourceFileNotFoundError(relative_path)
+    return target.read_text(encoding="utf-8", errors="replace")

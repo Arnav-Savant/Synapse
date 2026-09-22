@@ -13,16 +13,20 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.chat import router as chat_router
 from app.api.graph import router as graph_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.knowledge import router as knowledge_router
 from app.api.sources import router as sources_router
+from app.claude_runner.chat_engine import ChatEngineError
 from app.core.config import get_settings
 from app.jobs import store as job_store
 from app.jobs.queue import JobQueue
+from app.knowledge.frontmatter import FrontmatterError
 from app.repositories.knowledge_repo import KnowledgeFileNotFoundError
 from app.repositories.paths import PathTraversalError
+from app.repositories.source_repo import SourceFileNotFoundError
 
 settings = get_settings()
 
@@ -57,8 +61,24 @@ async def handle_knowledge_not_found(request: Request, exc: KnowledgeFileNotFoun
     return JSONResponse(status_code=404, content={"detail": f"knowledge concept not found: {exc}"})
 
 
+@app.exception_handler(SourceFileNotFoundError)
+async def handle_source_not_found(request: Request, exc: SourceFileNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": f"source file not found: {exc}"})
+
+
+@app.exception_handler(FrontmatterError)
+async def handle_frontmatter_error(request: Request, exc: FrontmatterError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(ChatEngineError)
+async def handle_chat_engine_error(request: Request, exc: ChatEngineError) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
 app.include_router(health_router, prefix="/api")
 app.include_router(sources_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 app.include_router(graph_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")

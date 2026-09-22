@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 
 import { fetchGraph } from "../../api/graph";
@@ -18,16 +18,19 @@ const FOCUS_DEPTH = 2;
 const FCOSE_LAYOUT = { name: "fcose", animate: false } as unknown as cytoscape.LayoutOptions;
 
 interface GraphViewProps {
-  onSelectNode?: (nodeId: string) => void;
+  /** Controlled selection, shared with the knowledge viewer (Phase 5) so
+   * graph clicks and wikilink navigation stay in sync regardless of which
+   * one triggered the change. */
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
 }
 
-export function GraphView({ onSelectNode }: GraphViewProps) {
+export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   const graphQuery = useQuery({ queryKey: ["graph"], queryFn: fetchGraph });
   const cyRef = useRef<cytoscape.Core | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterOptions>(NO_FILTER);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
 
   const allNodes = useMemo(() => graphQuery.data?.nodes ?? [], [graphQuery.data]);
@@ -73,18 +76,24 @@ export function GraphView({ onSelectNode }: GraphViewProps) {
   }`;
 
   function selectNode(nodeId: string) {
-    setSelectedNodeId(nodeId);
     setSearchQuery("");
-    onSelectNode?.(nodeId);
+    onSelectNode(nodeId);
+  }
 
+  // Re-applies selection highlight/centering whenever the selected node
+  // changes OR the cytoscape instance is freshly remounted (a new instance
+  // starts with nothing selected) — covers both a graph click and an
+  // external change (e.g. a wikilink navigated to this node elsewhere).
+  useEffect(() => {
     const cy = cyRef.current;
-    const target = cy?.getElementById(nodeId);
-    if (cy && target && target.nonempty()) {
+    if (!cy || !selectedNodeId) return;
+    const target = cy.getElementById(selectedNodeId);
+    if (target.nonempty()) {
       cy.elements().unselect();
       target.select();
       cy.animate({ center: { eles: target }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 300 });
     }
-  }
+  }, [selectedNodeId, cytoscapeKey]);
 
   return (
     <div className="space-y-3">
