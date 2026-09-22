@@ -1,0 +1,8 @@
+# Env files belong only in backend/.env (covered by backend/.gitignore) and
+# frontend/.env* (covered by frontend/.gitignore). This root entry is a
+# safety net against one ever landing at the repo root by mistake — it must
+# never be committed, since it holds machine-specific paths.
+.env
+.env.local
+
+.DS_Store

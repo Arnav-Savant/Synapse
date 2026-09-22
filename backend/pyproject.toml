@@ -1,0 +1,27 @@
+[project]
+name = "synapse-backend"
+version = "0.1.0"
+description = "Synapse backend — FastAPI service, filesystem-backed knowledge engine"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.4",
+]
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.3"
+httpx = ">=0.27"
+
+[tool.pytest.ini_options]
+# Without __init__.py files (app/ and tests/ are namespace packages),
+# pytest's import-mode heuristic doesn't put backend/ on sys.path on its
+# own — this makes `from app...` resolve during test collection.
+pythonpath = ["."]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

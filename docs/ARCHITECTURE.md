@@ -11,7 +11,7 @@ rationale next to it so a future session doesn't have to rediscover it.
 repositories**.
 
 - `Synapse/` (this repo) — backend, frontend, docs. A normal software repo.
-- `<KNOWLEDGE_REPO_PATH>/` (default: `~/Personal/Arnav/synapse-knowledge`,
+- `<KNOWLEDGE_REPO_PATH>/` (default: `~/synapse-knowledge`,
   configurable via `.env`) — the content repo:
   ```
   synapse-knowledge/
@@ -315,8 +315,9 @@ Single process, no external services.
 backend/
   app/
     main.py                 # FastAPI app, CORS (localhost only), route registration
-    config.py                # env/.env loading: KNOWLEDGE_REPO_PATH, LLM config paths
-    fs/
+    core/
+      config.py               # env/.env loading: KNOWLEDGE_REPO_PATH, LLM config paths
+    repositories/
       paths.py               # path resolution + traversal guards, all confined to repo roots
       source_repo.py         # create/read/list source files (text + binary upload)
       knowledge_repo.py      # read/list/write knowledge files
@@ -334,15 +335,32 @@ backend/
     llm/
       litellm_adapter.py       # optional external-provider chat path (Phase 7)
       settings.py               # provider/model config, never exposes key values
+    services/
+      source_service.py         # orchestrates repositories/claude_runner for source operations
+      knowledge_service.py       # orchestrates repositories/knowledge for concept read/write
+      graph_service.py            # orchestrates knowledge/graph.py + caching (§6 below)
+      job_service.py               # orchestrates jobs/ + claude_runner/ for processing runs
+      chat_service.py               # strategy dispatch between claude_runner and llm/ engines
+    schemas/
+      health.py, sources.py, knowledge.py, graph.py, jobs.py, chat.py, settings.py
+      # Pydantic request/response models — the API contract layer
     api/
-      sources.py                # /api/sources
-      knowledge.py               # /api/knowledge
-      graph.py                    # /api/graph
-      jobs.py                      # /api/jobs
-      chat.py                       # /api/chat
-      settings.py                   # /api/settings/llm
+      health.py                     # /api/health
+      sources.py                     # /api/sources
+      knowledge.py                    # /api/knowledge
+      graph.py                         # /api/graph
+      jobs.py                           # /api/jobs
+      chat.py                            # /api/chat
+      settings.py                        # /api/settings/llm
   tests/
 ```
+
+Layering, thin-to-thick: **`api/`** (validate via `schemas/`, call a service,
+return it) → **`services/`** (business logic, composes everything below) →
+**`repositories/` / `knowledge/` / `claude_runner/` / `jobs/` / `llm/`**
+(single-purpose modules, no knowledge of HTTP). A route never calls a
+repository directly, and a repository never imports FastAPI. `core/`
+holds cross-cutting app configuration only.
 
 - **No database.** Job state is small, low-volume, and append-mostly — a
   JSON file per job under `.synapse/jobs/` is sufficient, and it's
@@ -514,7 +532,7 @@ provider names + `configured: true/false`, never key values (FR6.3).
 ```
 # one-time
 claude login                                  # if not already logged in
-export KNOWLEDGE_REPO_PATH=~/Personal/Arnav/synapse-knowledge
+export KNOWLEDGE_REPO_PATH=~/synapse-knowledge
 cd backend && poetry install                  # or pip install -r requirements.txt
 cd frontend && npm install
 
@@ -522,3 +540,76 @@ cd frontend && npm install
 cd backend && uvicorn app.main:app --reload --port 8000
 cd frontend && npm run dev                     # Vite dev server, proxies /api to :8000
 ```
+
+## 14. Engineering standards
+
+Binding for every phase in `PLAN.md`, not just a preference — these are
+checked as part of each phase's acceptance, not left to a final cleanup
+pass.
+
+### 14.1 Modularity and file size
+
+- **One responsibility per file/module.** The `backend/app/` layout in §6
+  and `frontend/src/` layout in §9 are not just folder suggestions — a file
+  under `fs/` does filesystem I/O and nothing else, a file under
+  `knowledge/` does parsing/graph logic and nothing else, a route file in
+  `api/` validates input and delegates, it doesn't contain business logic
+  inline. If a module starts doing two of these things, split it before
+  adding more to it, not after.
+- **No god-files.** If a file is growing past roughly 200–300 lines or
+  accumulating unrelated helper functions, that's a signal to extract a
+  module, not a size limit to hit and then ignore. Route files in
+  particular should stay thin (request → validation → service call →
+  response), with the actual work living in the service modules under
+  `fs/`, `knowledge/`, `claude_runner/`, `jobs/`, `llm/`.
+- Same principle on the frontend: a component that's rendering markup,
+  fetching data, and doing non-trivial computation (graph filtering,
+  wikilink parsing) should split that computation into a pure function or
+  hook (`state/`/`api/`) that's independently testable — this is already
+  assumed by `PLAN.md` Phase 4's test plan (pure functions for
+  search/filter/focus-view logic, tested apart from rendering).
+
+### 14.2 Patterns to use deliberately (not decoratively)
+
+- **Repository pattern** for all filesystem access: `repositories/
+  source_repo.py` and `repositories/knowledge_repo.py` are the only modules
+  that touch `source/`/`knowledge/` on disk. Nothing else — not API routes,
+  not services, not the graph builder — reads or writes files directly;
+  everything goes through these repositories. This is what makes
+  path-safety (§11) and testability (swap in a temp-dir fixture) hold
+  everywhere at once instead of being re-implemented per call site.
+- **Strategy pattern for chat engines** (Phase 6/7): define one small
+  interface (e.g. a `ChatEngine` protocol with a single `respond(message,
+  context) -> str` method) implemented by the Claude Code read-only runner
+  and, later, the LiteLLM adapter. `services/chat_service.py` depends on
+  the interface and picks an implementation based on the active-engine
+  setting; the `POST /api/chat` route just calls the service — neither
+  layer branches on provider name inline. This is also what keeps Phase 7
+  additive: implementing the interface again for a new provider shouldn't
+  require touching the route or the service's dispatch logic.
+- **Adapter pattern** for LiteLLM (`llm/litellm_adapter.py`): isolates the
+  third-party call shape from the rest of the app, consistent with the
+  strategy interface above.
+- **Dependency injection via FastAPI's `Depends`** for anything
+  request-scoped or configuration-derived (repo paths, the active chat
+  engine, the job queue handle) — services take their dependencies as
+  constructor/function arguments, not by reaching for globals or
+  re-reading `.env` deep inside unrelated modules.
+- **Pure functions for anything analytical**: frontmatter parsing, graph
+  building, wikilink extraction, graph search/filter/focus-view logic —
+  all take data in and return data out, with no I/O and no framework
+  dependency, so they're trivially unit-testable per §12 and reusable if
+  the frontend graph logic ever needs to move (e.g. server-side filtering
+  at larger scale).
+
+### 14.3 What this deliberately doesn't mean
+
+Per the project's own stated philosophy (avoid unnecessary abstraction):
+this is about separating genuinely distinct responsibilities and reusing an
+established pattern where one actually fits (chat engines are a textbook
+strategy-pattern case because there will provably be ≥2 implementations
+behind one interface by Phase 7) — not about adding interfaces, factories,
+or abstraction layers for single-implementation code "for future
+flexibility." A module with one obvious way to do it stays a plain
+function/class; the patterns above apply where the design doc already
+implies more than one implementation or a shared access boundary.

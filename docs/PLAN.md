@@ -18,13 +18,17 @@ functional yet.
 
 **Scope:**
 - Create the knowledge repo at `KNOWLEDGE_REPO_PATH` (default
-  `~/Personal/Arnav/synapse-knowledge`), `git init`, directory skeleton per
+  `~/synapse-knowledge`), `git init`, directory skeleton per
   `ARCHITECTURE.md` §3 (`source/`, `knowledge/`, `assets/`, `.synapse/`),
   empty `CLAUDE.md` placeholder (filled in Phase 2), `.gitignore`
   (`.synapse/logs/`), first commit.
-- Backend skeleton: `backend/` with FastAPI app, `app/config.py` reading
-  `KNOWLEDGE_REPO_PATH` from `.env`, a single `GET /api/health` route,
-  Poetry (or `requirements.txt`) dependency setup, `uvicorn` runs.
+- Backend skeleton: `backend/` with FastAPI app, the full module layout
+  from `ARCHITECTURE.md` §6 created up front (`core/`, `api/`, `schemas/`,
+  `services/`, `repositories/`, `knowledge/`, `claude_runner/`, `jobs/`,
+  `llm/` — most as placeholder packages populated in later phases),
+  `core/config.py` reading `KNOWLEDGE_REPO_PATH` from `.env`, a single
+  `GET /api/health` route with a `schemas/health.py` response model, Poetry
+  dependency setup, `uvicorn`/`python main.py` both run it.
 - Frontend skeleton: `frontend/` via Vite React-TS template, Tailwind
   configured, one placeholder route that calls `/api/health` and displays
   the result (proves the frontend↔backend wire works).
@@ -53,13 +57,20 @@ repo and let the user create source material, with no Claude Code
 involvement yet.
 
 **Scope:**
-- Backend `fs/paths.py`: path resolution + traversal guards confined to
-  `KNOWLEDGE_REPO_PATH`.
-- Backend `fs/source_repo.py`: list source files (recursively, with
-  category from path), create/update a text source file at
+- Backend `repositories/paths.py`: path resolution + traversal guards
+  confined to `KNOWLEDGE_REPO_PATH`.
+- Backend `repositories/source_repo.py`: list source files (recursively,
+  with category from path), create/update a text source file at
   `source/<category>/<name>.md`, upload a binary file to
   `source/_uploads/`.
-- Backend `fs/knowledge_repo.py`: list `knowledge/*.md`, read one by slug.
+- Backend `repositories/knowledge_repo.py`: list `knowledge/*.md`, read one
+  by slug.
+- Backend `services/source_service.py` and `services/knowledge_service.py`:
+  thin orchestration over the repositories above (validation, slug
+  derivation); this is where Phase 1's actual logic lives, not in the
+  route handlers.
+- Backend `schemas/sources.py`, `schemas/knowledge.py`: request/response
+  models for the endpoints below.
 - API: `GET /api/sources`, `POST /api/sources`, `POST /api/sources/upload`,
   `GET /api/knowledge`, `GET /api/knowledge/{slug}`.
 - Frontend: a source list/create view (form: category, filename, paste
@@ -69,9 +80,11 @@ involvement yet.
   `test-concept.md` with valid frontmatter per the schema) to have
   something real to list/view before Claude Code produces anything.
 
-**Components affected:** `backend/app/fs/*`, `backend/app/api/sources.py`,
-`backend/app/api/knowledge.py` (read-only for now), frontend source +
-knowledge list views.
+**Components affected:** `backend/app/repositories/*`,
+`backend/app/services/source_service.py`,
+`backend/app/services/knowledge_service.py`, `backend/app/schemas/*`,
+`backend/app/api/sources.py`, `backend/app/api/knowledge.py` (read-only for
+now), frontend source + knowledge list views.
 
 **Acceptance criteria:**
 - Creating a source file via the UI produces the file on disk under
@@ -110,14 +123,18 @@ deduplicated, related knowledge files, with no API key required.
 - `jobs/queue.py` + `jobs/store.py`: single-worker async queue, job records
   in `.synapse/jobs/*.json` (states: queued/running/succeeded/failed),
   reconcile orphaned "running" jobs to "failed" on backend startup.
+- `services/job_service.py`: orchestrates `jobs/` + `claude_runner/` +
+  `git_guard.py` into "process this source file" — the route just calls
+  this and returns.
 - API: `POST /api/jobs/process` (body: source file path) → 202 + job id;
   `GET /api/jobs/{id}`; `GET /api/jobs` (recent history).
 - Frontend: "Process" action on a source file; job status indicator that
   polls until terminal state and shows a summary (files changed) or error.
 
 **Components affected:** `backend/app/claude_runner/*`,
-`backend/app/jobs/*`, `backend/app/api/jobs.py`, knowledge repo `CLAUDE.md`,
-frontend source view + new jobs UI.
+`backend/app/jobs/*`, `backend/app/services/job_service.py`,
+`backend/app/schemas/jobs.py`, `backend/app/api/jobs.py`, knowledge repo
+`CLAUDE.md`, frontend source view + new jobs UI.
 
 **Acceptance criteria (functional):**
 - Submitting a real ChatGPT/Claude conversation export (the user's own
@@ -162,10 +179,16 @@ default CI run) per `ARCHITECTURE.md` §12.
 - Validation pass: detect relationships whose `target` doesn't correspond to
   any existing concept file; surface as warnings in the API response rather
   than failing.
-- `GET /api/graph` with an in-memory cache invalidated on job completion
-  (Phase 2) and on knowledge-file save (Phase 5).
+- `services/graph_service.py`: owns the in-memory cache (built from
+  `knowledge/graph.py`), invalidated on job completion (Phase 2) and on
+  knowledge-file save (Phase 5). The route just calls
+  `graph_service.get_graph()`.
+- `schemas/graph.py`: `GraphResponse` (`nodes`, `edges`, `warnings`).
+- `GET /api/graph`.
 
-**Components affected:** `backend/app/knowledge/*`, `backend/app/api/graph.py`.
+**Components affected:** `backend/app/knowledge/*`,
+`backend/app/services/graph_service.py`, `backend/app/schemas/graph.py`,
+`backend/app/api/graph.py`.
 
 **Acceptance criteria:**
 - `GET /api/graph` against the seed files (Phase 1) plus anything Phase 2
@@ -237,9 +260,12 @@ synthesized knowledge — closing the loop from graph → content → graph.
   read-only (clearly labeled as raw material, distinct styling from
   generated knowledge per FR4.1).
 - Wire graph node selection (Phase 4) to actually open this viewer.
-- Graph cache invalidation on save (ties into Phase 3's cache).
+- `services/knowledge_service.py` gains the write path (parse, merge
+  frontmatter, write via `knowledge_repo.py`) and calls
+  `graph_service.invalidate()` on save, tying into Phase 3's cache.
 
-**Components affected:** `backend/app/api/knowledge.py` (add `PUT`),
+**Components affected:** `backend/app/services/knowledge_service.py`,
+`backend/app/api/knowledge.py` (add `PUT`),
 `frontend/src/components/knowledge/*`, `frontend/src/components/source/*`
 (read-only raw viewer).
 
@@ -268,15 +294,19 @@ with no API key required.
 **Scope:**
 - `claude_runner`: a read-only invocation variant (`--tools "Read,Glob,Grep"`,
   no `Write`/`Edit`), reusing the same subprocess mechanism.
-- `POST /api/chat` (message, optional `concept` context) → runs the
-  read-only invocation scoped to the knowledge repo, returns the response.
-  Single "engine" for now (Claude Code); the provider-selection layer is
-  Phase 7.
+- `services/chat_service.py`: introduces the `ChatEngine` strategy interface
+  (`ARCHITECTURE.md` §14.2) with the Claude Code read-only runner as its
+  first implementation. Single engine for now; Phase 7 adds the second.
+- `schemas/chat.py`: request/response models for chat.
+- `POST /api/chat` (message, optional `concept` context) → calls
+  `chat_service`, returns the response.
 - Frontend chat panel: global chat, plus an "ask about this concept" entry
   point from the concept viewer that pre-fills context.
 
 **Components affected:** `backend/app/claude_runner/*` (new prompt
-template), `backend/app/api/chat.py`, `frontend/src/components/chat/*`.
+template), `backend/app/services/chat_service.py`,
+`backend/app/schemas/chat.py`, `backend/app/api/chat.py`,
+`frontend/src/components/chat/*`.
 
 **Acceptance criteria:**
 - Asking a question answerable from existing `knowledge/*.md` content
@@ -306,18 +336,24 @@ for chat, without touching the core processing workflow.
   values referenced via `${ENV_VAR}` (never literal keys in the file).
 - `llm/settings.py`: load config, resolve env vars, expose
   provider name + `configured: bool` (never the key itself).
-- `llm/litellm_adapter.py`: `litellm.completion(...)` call given
-  provider/model + assembled context (current concept content, or a small
-  keyword-matched set of concepts — no embeddings, per the RAG non-goal).
+- `llm/litellm_adapter.py`: implements the `ChatEngine` interface from
+  Phase 6 — `litellm.completion(...)` call given provider/model + assembled
+  context (current concept content, or a small keyword-matched set of
+  concepts — no embeddings, per the RAG non-goal).
+- `schemas/settings.py`: provider list / active-engine request-response
+  models.
 - API: `GET /api/settings/llm` (list providers + status), `PUT
   /api/settings/llm/active` (select active engine/model for chat).
-- `POST /api/chat` extended to route to the selected engine (Claude Code vs.
-  a configured LiteLLM provider).
+- `services/chat_service.py` extended to dispatch to the selected
+  `ChatEngine` (Claude Code vs. a configured LiteLLM provider) — no change
+  needed in `api/chat.py` itself (this is the point of the strategy
+  interface from Phase 6).
 - Frontend Settings screen: list engines, show configured/not-configured,
   select active engine + model.
 
-**Components affected:** `backend/app/llm/*`, `backend/app/api/chat.py`
-(routing), `backend/app/api/settings.py`, `frontend/src/components/settings/*`.
+**Components affected:** `backend/app/llm/*`,
+`backend/app/services/chat_service.py`, `backend/app/schemas/settings.py`,
+`backend/app/api/settings.py`, `frontend/src/components/settings/*`.
 
 **Acceptance criteria:**
 - With no provider configured, Settings shows only "Claude Code" as
