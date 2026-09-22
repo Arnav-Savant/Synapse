@@ -1,1 +1,0 @@
-Backpropagation computes the gradient of the loss with respect to each weight by applying the chain rule backwards through the network, layer by layer.
