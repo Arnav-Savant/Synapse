@@ -1,25 +1,27 @@
 import { useState } from "react";
 
-import { Knowledge } from "./routes/Knowledge";
+import { Graph } from "./routes/Graph";
 import { HealthBadge } from "./routes/HealthBadge";
+import { Knowledge } from "./routes/Knowledge";
 import { Sources } from "./routes/Sources";
 
-type Tab = "sources" | "knowledge";
+type Tab = "graph" | "sources" | "knowledge";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "graph", label: "Graph" },
   { id: "sources", label: "Sources" },
   { id: "knowledge", label: "Knowledge" },
 ];
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("sources");
+  const [tab, setTab] = useState<Tab>("graph");
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
+    <main className="mx-auto max-w-6xl p-8">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-800">Synapse</h1>
-          <p className="text-sm text-slate-500">Phase 2 — Claude Code knowledge processing</p>
+          <p className="text-sm text-slate-500">Phase 4 — graph visualization and navigation</p>
         </div>
         <HealthBadge />
       </header>
@@ -40,7 +42,9 @@ export function App() {
         ))}
       </nav>
 
-      {tab === "sources" ? <Sources /> : <Knowledge />}
+      {tab === "graph" && <Graph />}
+      {tab === "sources" && <Sources />}
+      {tab === "knowledge" && <Knowledge />}
     </main>
   );
 }
