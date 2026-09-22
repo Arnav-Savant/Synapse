@@ -1,18 +1,42 @@
 """FastAPI application entrypoint: app construction and route registration only.
 
-Route modules live under `app/api/`; this file wires them together and
-configures CORS. No business logic should be added here.
+Route modules live under `app/api/`; this file wires them together,
+configures CORS, maps domain exceptions raised by the repository layer to
+HTTP responses centrally, and starts the job queue worker on startup. No
+business logic should be added here.
 """
 
-from fastapi import FastAPI
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
+from app.api.knowledge import router as knowledge_router
+from app.api.sources import router as sources_router
 from app.core.config import get_settings
+from app.jobs import store as job_store
+from app.jobs.queue import JobQueue
+from app.repositories.knowledge_repo import KnowledgeFileNotFoundError
+from app.repositories.paths import PathTraversalError
 
 settings = get_settings()
 
-app = FastAPI(title="Synapse Backend")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    job_store.reconcile_orphaned_running_jobs(settings.knowledge_repo_path)
+    queue = JobQueue()
+    queue.start()
+    app.state.job_queue = queue
+    yield
+    await queue.stop()
+
+
+app = FastAPI(title="Synapse Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,4 +45,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(PathTraversalError)
+async def handle_path_traversal(request: Request, exc: PathTraversalError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(KnowledgeFileNotFoundError)
+async def handle_knowledge_not_found(request: Request, exc: KnowledgeFileNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": f"knowledge concept not found: {exc}"})
+
+
 app.include_router(health_router, prefix="/api")
+app.include_router(sources_router, prefix="/api")
+app.include_router(knowledge_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")

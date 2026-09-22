@@ -13,11 +13,34 @@ export class ApiError extends Error {
   }
 }
 
+async function parseErrorDetail(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: string };
+    return body.detail ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`);
 
   if (!response.ok) {
-    throw new ApiError(response.status, `GET ${path} failed: ${response.status}`);
+    throw new ApiError(response.status, await parseErrorDetail(response, `GET ${path} failed: ${response.status}`));
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await parseErrorDetail(response, `POST ${path} failed: ${response.status}`));
   }
 
   return (await response.json()) as T;
