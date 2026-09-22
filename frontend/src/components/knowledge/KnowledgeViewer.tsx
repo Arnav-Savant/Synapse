@@ -31,36 +31,30 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
   });
 
   if (detailQuery.isPending) {
-    return <p className="text-sm text-slate-500">Loading…</p>;
+    return <p className="font-mono text-xs text-graphite">loading…</p>;
   }
 
   if (detailQuery.isError) {
     const message = detailQuery.error instanceof ApiError ? detailQuery.error.message : "Failed to load concept.";
-    return <p className="text-sm text-red-600">{message}</p>;
+    return <p className="font-mono text-xs text-rose-400">{message}</p>;
   }
 
   const detail = detailQuery.data;
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-[720px] space-y-5 border border-paper-line bg-paper p-8 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
       <ConceptMeta detail={detail} onNavigate={onNavigate} />
 
       {mode === "view" ? (
         <>
           <MarkdownBody body={detail.body} onNavigate={onNavigate} />
-          <div className="flex gap-2">
-            <button
-              onClick={() => setMode("edit")}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              Edit
+          <div className="flex gap-3 border-t border-paper-line pt-4 font-mono text-xs">
+            <button onClick={() => setMode("edit")} className="text-paper-ink/60 hover:text-spark-dim">
+              edit
             </button>
             {onAskAboutConcept && (
-              <button
-                onClick={() => onAskAboutConcept(slug)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                Ask about this concept
+              <button onClick={() => onAskAboutConcept(slug)} className="text-paper-ink/60 hover:text-spark-dim">
+                ask about this concept
               </button>
             )}
           </div>
@@ -76,14 +70,14 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
       )}
 
       {detail.sources.length > 0 && (
-        <div className="space-y-2 border-t border-slate-200 pt-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Sources</p>
+        <div className="space-y-2 border-t border-paper-line pt-4">
+          <p className="font-mono text-[11px] text-paper-ink/50">sources</p>
           <div className="flex flex-wrap gap-2">
             {detail.sources.map((source) => (
               <button
                 key={source}
                 onClick={() => setOpenSource(openSource === source ? null : source)}
-                className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                className="border border-paper-line px-2 py-1 font-mono text-[11px] text-paper-ink/70 hover:border-spark-dim hover:text-spark-dim"
               >
                 {source}
               </button>

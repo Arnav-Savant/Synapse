@@ -9,10 +9,10 @@ import { Sources } from "./routes/Sources";
 type Tab = "graph" | "sources" | "knowledge" | "chat";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "graph", label: "Graph" },
-  { id: "sources", label: "Sources" },
-  { id: "knowledge", label: "Knowledge" },
-  { id: "chat", label: "Chat" },
+  { id: "graph", label: "graph" },
+  { id: "sources", label: "sources" },
+  { id: "knowledge", label: "knowledge" },
+  { id: "chat", label: "chat" },
 ];
 
 export function App() {
@@ -36,39 +36,37 @@ export function App() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl p-8">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-800">Synapse</h1>
-          <p className="text-sm text-slate-500">Phase 6 — chat interface</p>
-        </div>
-        <HealthBadge />
-      </header>
+    <div className="min-h-screen bg-ink">
+      <main className="mx-auto max-w-6xl p-8">
+        <header className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="h-2 w-2 rounded-full bg-spark shadow-[0_0_8px_2px_rgba(217,164,65,0.5)]" />
+            <h1 className="font-mono text-sm tracking-wide text-paper">synapse</h1>
+          </div>
+          <HealthBadge />
+        </header>
 
-      <nav className="mb-6 flex gap-1 border-b border-slate-200">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`px-3 py-2 text-sm font-medium ${
-              tab === id
-                ? "border-b-2 border-slate-800 text-slate-800"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+        <nav className="mb-8 flex gap-6 border-b border-ink-line font-mono text-xs">
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`-mb-px border-b pb-2 ${
+                tab === id ? "border-spark text-spark" : "border-transparent text-graphite hover:text-paper"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
 
-      {tab === "graph" && <Graph selectedSlug={selectedSlug} onSelectSlug={openConcept} />}
-      {tab === "sources" && <Sources />}
-      {tab === "knowledge" && (
-        <Knowledge selectedSlug={selectedSlug} onSelectSlug={setSelectedSlug} onAskAboutConcept={askAboutConcept} />
-      )}
-      {tab === "chat" && (
-        <Chat contextSlug={chatContextSlug} onClearContext={() => setChatContextSlug(null)} />
-      )}
-    </main>
+        {tab === "graph" && <Graph selectedSlug={selectedSlug} onSelectSlug={openConcept} />}
+        {tab === "sources" && <Sources />}
+        {tab === "knowledge" && (
+          <Knowledge selectedSlug={selectedSlug} onSelectSlug={setSelectedSlug} onAskAboutConcept={askAboutConcept} />
+        )}
+        {tab === "chat" && <Chat contextSlug={chatContextSlug} onClearContext={() => setChatContextSlug(null)} />}
+      </main>
+    </div>
   );
 }

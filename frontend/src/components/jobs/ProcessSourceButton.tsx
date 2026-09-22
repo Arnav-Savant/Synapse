@@ -35,6 +35,7 @@ export function ProcessSourceButton({ sourceRelativePath }: { sourceRelativePath
   useEffect(() => {
     if (status === "succeeded") {
       void queryClient.invalidateQueries({ queryKey: ["knowledge"] });
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
     }
   }, [status, queryClient]);
 
@@ -43,28 +44,24 @@ export function ProcessSourceButton({ sourceRelativePath }: { sourceRelativePath
       <button
         onClick={() => triggerMutation.mutate()}
         disabled={triggerMutation.isPending}
-        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        className="border border-ink-line px-2 py-1 text-graphite hover:border-spark hover:text-spark disabled:opacity-50"
       >
-        {triggerMutation.isPending ? "Starting…" : "Process"}
+        {triggerMutation.isPending ? "starting…" : "process"}
       </button>
     );
   }
 
   if (status === "succeeded") {
-    return (
-      <span className="text-xs text-emerald-600">
-        done — {jobQuery.data?.committed_files.length ?? 0} file(s) updated
-      </span>
-    );
+    return <span className="text-emerald-400">done — {jobQuery.data?.committed_files.length ?? 0} file(s)</span>;
   }
 
   if (status === "failed") {
     return (
-      <span className="text-xs text-red-600" title={jobQuery.data?.error ?? undefined}>
+      <span className="text-rose-400" title={jobQuery.data?.error ?? undefined}>
         failed — {jobQuery.data?.error}
       </span>
     );
   }
 
-  return <span className="text-xs text-slate-500">{status ?? "queued"}…</span>;
+  return <span className="text-spark">{status ?? "queued"}…</span>;
 }

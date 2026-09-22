@@ -13,18 +13,18 @@ export function Knowledge({ selectedSlug, onSelectSlug, onAskAboutConcept }: Kno
   const slugsQuery = useQuery({ queryKey: ["knowledge"], queryFn: fetchKnowledgeSlugs });
 
   return (
-    <div className="grid grid-cols-3 gap-6">
-      <div>
-        <h2 className="mb-2 font-medium text-slate-800">Concepts</h2>
-        {slugsQuery.isPending && <p className="text-sm text-slate-500">Loading…</p>}
-        {slugsQuery.isError && <p className="text-sm text-red-600">Failed to load knowledge list.</p>}
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+    <div className="grid grid-cols-4 gap-8">
+      <div className="font-mono text-xs">
+        <h2 className="mb-3 text-graphite">concepts</h2>
+        {slugsQuery.isPending && <p className="text-graphite">loading…</p>}
+        {slugsQuery.isError && <p className="text-rose-400">failed to load knowledge list.</p>}
+        <ul className="space-y-0.5">
           {slugsQuery.data?.map((slug) => (
             <li key={slug}>
               <button
                 onClick={() => onSelectSlug(slug)}
-                className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                  selectedSlug === slug ? "bg-slate-100 font-medium" : ""
+                className={`block w-full truncate px-2 py-1.5 text-left ${
+                  selectedSlug === slug ? "bg-ink-soft text-spark" : "text-graphite hover:text-paper"
                 }`}
               >
                 {slug}
@@ -34,9 +34,9 @@ export function Knowledge({ selectedSlug, onSelectSlug, onAskAboutConcept }: Kno
         </ul>
       </div>
 
-      <div className="col-span-2">
+      <div className="col-span-3">
         {selectedSlug === null ? (
-          <p className="text-sm text-slate-500">Select a concept to view it.</p>
+          <p className="font-mono text-xs text-graphite">select a concept to view it.</p>
         ) : (
           <KnowledgeViewer slug={selectedSlug} onNavigate={onSelectSlug} onAskAboutConcept={onAskAboutConcept} />
         )}

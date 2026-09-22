@@ -5,7 +5,7 @@ import { type CreateSourceInput, createSource, fetchSources } from "../api/sourc
 import { ProcessSourceButton } from "../components/jobs/ProcessSourceButton";
 
 const inputClass =
-  "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none";
+  "w-full border-b border-ink-line bg-transparent px-1 py-2 text-paper placeholder-graphite/60 focus:border-spark focus:outline-none";
 
 export function Sources() {
   const queryClient = useQueryClient();
@@ -30,28 +30,28 @@ export function Sources() {
   }
 
   return (
-    <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="space-y-3 rounded-lg border border-slate-200 p-4">
-        <h2 className="font-medium text-slate-800">Add source material</h2>
-        <div className="flex gap-3">
+    <div className="max-w-2xl space-y-10 font-mono text-xs">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <h2 className="text-graphite">add source material</h2>
+        <div className="flex gap-6">
           <input
             className={inputClass}
-            placeholder="category (e.g. prompt-engineering)"
+            placeholder="category — e.g. prompt-engineering"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             required
           />
           <input
             className={inputClass}
-            placeholder="filename (e.g. chat-001)"
+            placeholder="filename — e.g. chat-001"
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
             required
           />
         </div>
         <textarea
-          className={inputClass}
-          placeholder="Paste conversation / notes / article content here"
+          className={`${inputClass} border`}
+          placeholder="paste conversation / notes / article content here"
           rows={8}
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -60,30 +60,30 @@ export function Sources() {
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="bg-spark px-4 py-1.5 text-ink disabled:opacity-50"
         >
-          {createMutation.isPending ? "Saving…" : "Save source"}
+          {createMutation.isPending ? "saving…" : "save source"}
         </button>
         {createMutation.isError && (
-          <p className="text-sm text-red-600">
-            {createMutation.error instanceof Error ? createMutation.error.message : "Failed to save"}
+          <p className="text-rose-400">
+            {createMutation.error instanceof Error ? createMutation.error.message : "failed to save"}
           </p>
         )}
       </form>
 
       <div>
-        <h2 className="mb-2 font-medium text-slate-800">Source files</h2>
-        {sourcesQuery.isPending && <p className="text-sm text-slate-500">Loading…</p>}
-        {sourcesQuery.isError && <p className="text-sm text-red-600">Failed to load sources.</p>}
+        <h2 className="mb-3 text-graphite">source files</h2>
+        {sourcesQuery.isPending && <p className="text-graphite">loading…</p>}
+        {sourcesQuery.isError && <p className="text-rose-400">failed to load sources.</p>}
         {sourcesQuery.data && sourcesQuery.data.length === 0 && (
-          <p className="text-sm text-slate-500">No source files yet.</p>
+          <p className="text-graphite">no source files yet.</p>
         )}
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+        <ul className="divide-y divide-ink-line border-y border-ink-line">
           {sourcesQuery.data?.map((source) => (
-            <li key={source.relative_path} className="flex items-center justify-between gap-4 px-4 py-2 text-sm">
-              <span className="text-slate-700">{source.relative_path}</span>
-              <div className="flex items-center gap-3">
-                <span className="text-slate-400">{source.size_bytes} B</span>
+            <li key={source.relative_path} className="flex items-center justify-between gap-4 py-2.5">
+              <span className="text-paper">{source.relative_path}</span>
+              <div className="flex items-center gap-4">
+                <span className="text-graphite">{source.size_bytes}b</span>
                 <ProcessSourceButton sourceRelativePath={source.relative_path} />
               </div>
             </li>

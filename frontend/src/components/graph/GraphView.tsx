@@ -7,15 +7,28 @@ import CytoscapeComponent from "react-cytoscapejs";
 import { fetchGraph } from "../../api/graph";
 import { Breadcrumb } from "./Breadcrumb";
 import { GRAPH_STYLESHEET } from "./cytoscapeStyle";
+import { colorForDomains } from "./domainColors";
 import { FilterControls } from "./FilterControls";
 import { collectDomains, collectStatuses, filterEdges, filterNodes, NO_FILTER, type FilterOptions } from "./filters";
 import { computeNeighborhood } from "./neighborhood";
+import { estimateNodeSize } from "./nodeSize";
 import { SearchBox } from "./SearchBox";
 
 cytoscape.use(fcose);
 
 const FOCUS_DEPTH = 2;
-const FCOSE_LAYOUT = { name: "fcose", animate: false } as unknown as cytoscape.LayoutOptions;
+const FCOSE_LAYOUT = {
+  name: "fcose",
+  animate: false,
+  fit: true,
+  padding: 48,
+  // Node width/height come from data(width)/data(height) (nodeSize.ts),
+  // computed upfront in JS — not cytoscape's own "width: label" auto-
+  // sizing, which fcose can't see correctly at layout time (confirmed:
+  // without this, every node collapses onto the same spot because fcose
+  // spaces them as if they were near-zero size).
+  nodeDimensionsIncludeLabels: true,
+} as unknown as cytoscape.LayoutOptions;
 
 interface GraphViewProps {
   /** Controlled selection, shared with the knowledge viewer (Phase 5) so
@@ -54,7 +67,9 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   const elements = useMemo(
     () =>
       CytoscapeComponent.normalizeElements([
-        ...visibleNodes.map((n) => ({ data: { id: n.id, label: n.title } })),
+        ...visibleNodes.map((n) => ({
+          data: { id: n.id, label: n.title, color: colorForDomains(n.domains), ...estimateNodeSize(n.title) },
+        })),
         ...visibleEdges.map((e) => ({
           data: {
             id: `${e.source}->${e.target}->${e.type}`,
@@ -84,20 +99,26 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   // changes OR the cytoscape instance is freshly remounted (a new instance
   // starts with nothing selected) — covers both a graph click and an
   // external change (e.g. a wikilink navigated to this node elsewhere).
+  // Relationship-type labels only appear on the selected node's own edges
+  // (the `.highlighted` class in cytoscapeStyle.ts) — revealed by the
+  // action of selecting, not shown cluttering the whole graph by default.
   useEffect(() => {
     const cy = cyRef.current;
-    if (!cy || !selectedNodeId) return;
+    if (!cy) return;
+    cy.edges().removeClass("highlighted");
+    if (!selectedNodeId) return;
     const target = cy.getElementById(selectedNodeId);
     if (target.nonempty()) {
       cy.elements().unselect();
       target.select();
+      target.connectedEdges().addClass("highlighted");
       cy.animate({ center: { eles: target }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 300 });
     }
   }, [selectedNodeId, cytoscapeKey]);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-5 font-mono text-xs">
         <SearchBox nodes={allNodes} query={searchQuery} onQueryChange={setSearchQuery} onSelect={selectNode} />
         <FilterControls
           domainOptions={domainOptions}
@@ -114,11 +135,11 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
         onToggleFocus={setFocusMode}
       />
 
-      <div className="overflow-hidden rounded-lg border border-slate-200" style={{ height: 600 }}>
-        {graphQuery.isPending && <p className="p-4 text-sm text-slate-500">Loading graph…</p>}
-        {graphQuery.isError && <p className="p-4 text-sm text-red-600">Failed to load graph.</p>}
+      <div className="overflow-hidden rounded-sm border border-ink-line bg-ink" style={{ height: 600 }}>
+        {graphQuery.isPending && <p className="p-4 font-mono text-xs text-graphite">loading graph…</p>}
+        {graphQuery.isError && <p className="p-4 font-mono text-xs text-rose-400">failed to load graph.</p>}
         {graphQuery.data && visibleNodes.length === 0 && (
-          <p className="p-4 text-sm text-slate-500">No concepts match the current filters.</p>
+          <p className="p-4 font-mono text-xs text-graphite">no concepts match the current filters.</p>
         )}
         {graphQuery.data && visibleNodes.length > 0 && (
           <CytoscapeComponent
@@ -141,9 +162,9 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
       </div>
 
       {graphQuery.data && graphQuery.data.warnings.length > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-          <p className="font-medium">Warnings</p>
-          <ul className="list-disc pl-4">
+        <div className="rounded-sm border border-spark-dim/40 bg-ink-soft p-3 font-mono text-xs text-spark">
+          <p className="font-medium">warnings</p>
+          <ul className="list-disc pl-4 text-graphite">
             {graphQuery.data.warnings.map((warning, index) => (
               <li key={index}>{warning}</li>
             ))}

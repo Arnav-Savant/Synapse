@@ -7,9 +7,10 @@ interface SourceRawViewerProps {
   onClose: () => void;
 }
 
-/** Read-only raw source material — deliberately unstyled/plain compared to
- * generated knowledge, so it's unmistakable which one you're looking at
- * (FR4.1: preserve the distinction between raw source and synthesized
+/** Read-only raw source material. Deliberately breaks out of the paper
+ * reading surface into the dark/mono "unprocessed" voice used everywhere
+ * else for raw or structural material — unmistakable that this hasn't been
+ * through synthesis (FR4.1: never confuse raw source with generated
  * knowledge). */
 export function SourceRawViewer({ relativePath, onClose }: SourceRawViewerProps) {
   const query = useQuery({
@@ -18,21 +19,19 @@ export function SourceRawViewer({ relativePath, onClose }: SourceRawViewerProps)
   });
 
   return (
-    <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
-          Raw source material — {relativePath}
+    <div className="border border-ink-line bg-ink p-3 font-mono text-xs">
+      <div className="mb-2 flex items-center justify-between text-graphite">
+        <p>
+          raw source — <span className="text-paper">{relativePath}</span>
         </p>
-        <button onClick={onClose} className="text-xs text-amber-700 underline hover:text-amber-900">
+        <button onClick={onClose} className="hover:text-spark">
           close
         </button>
       </div>
-      {query.isPending && <p className="text-sm text-amber-700">Loading…</p>}
-      {query.isError && <p className="text-sm text-red-600">Failed to load source.</p>}
+      {query.isPending && <p className="text-graphite">loading…</p>}
+      {query.isError && <p className="text-rose-400">failed to load source.</p>}
       {query.data && (
-        <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs text-amber-900">
-          {query.data}
-        </pre>
+        <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-graphite">{query.data}</pre>
       )}
     </div>
   );

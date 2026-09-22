@@ -9,19 +9,17 @@ export function Breadcrumb({ selectedNodeId, focusMode, focusDepth, onToggleFocu
   if (!selectedNodeId) return null;
 
   return (
-    <div className="flex items-center gap-3 text-sm text-slate-600">
-      <span>
-        Selected: <span className="font-medium text-slate-800">{selectedNodeId}</span>
+    <div className="flex items-center gap-3 font-mono text-xs text-graphite">
+      <span className="flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-spark" />
+        {selectedNodeId}
       </span>
       <label className="flex items-center gap-1.5">
         <input type="checkbox" checked={focusMode} onChange={(e) => onToggleFocus(e.target.checked)} />
-        Focus view ({focusDepth}-hop neighborhood)
+        focus view ({focusDepth}-hop)
       </label>
       {focusMode && (
-        <button
-          onClick={() => onToggleFocus(false)}
-          className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
-        >
+        <button onClick={() => onToggleFocus(false)} className="text-spark hover:text-paper">
           ← back to global view
         </button>
       )}

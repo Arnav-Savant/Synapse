@@ -16,29 +16,25 @@ export function EditForm({ initialContent, onSave, onCancel, isSaving, error }: 
   const [content, setContent] = useState(initialContent);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
         rows={20}
-        className="w-full rounded-md border border-slate-300 p-3 font-mono text-xs focus:border-slate-500 focus:outline-none"
+        className="w-full border border-paper-line bg-paper-soft p-3 font-mono text-xs text-paper-ink focus:border-spark-dim focus:outline-none"
       />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-4 font-mono text-xs">
         <button
           onClick={() => onSave(content)}
           disabled={isSaving}
-          className="rounded-md bg-slate-800 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          className="bg-paper-ink px-4 py-1.5 text-paper disabled:opacity-50"
         >
-          {isSaving ? "Saving…" : "Save"}
+          {isSaving ? "saving…" : "save"}
         </button>
-        <button
-          onClick={onCancel}
-          disabled={isSaving}
-          className="rounded-md border border-slate-300 px-4 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-        >
-          Cancel
+        <button onClick={onCancel} disabled={isSaving} className="text-paper-ink/60 hover:text-paper-ink">
+          cancel
         </button>
-        {error && <span className="text-sm text-red-600">{error}</span>}
+        {error && <span className="text-rose-700">{error}</span>}
       </div>
     </div>
   );

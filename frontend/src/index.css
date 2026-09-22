@@ -1,2 +1,37 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/**
+ * Design tokens (see design notes below). Two surfaces, two typefaces
+ * mapped to the product's own raw-vs-synthesized distinction, one accent
+ * reserved for "active right now".
+ */
+@theme {
+  --color-ink: #14161c; /* dark canvas: navigation, the graph */
+  --color-ink-soft: #22252e; /* elevated panels within the dark canvas */
+  --color-ink-line: #34394a; /* hairlines on the dark canvas */
+  --color-paper: #ede3ce; /* reading surface: notes, chat, forms */
+  --color-paper-soft: #e4d8bd; /* recessed fields on paper */
+  --color-paper-line: #d7c9a8; /* hairlines on paper */
+  --color-paper-ink: #2b2620; /* body text on paper */
+  --color-graphite: #7d8698; /* quiet/dormant text on the dark canvas */
+  --color-spark: #d9a441; /* the one accent: active / selected / firing */
+  --color-spark-dim: #8a6a30; /* spark at rest (e.g. unfocused indicator) */
+
+  --font-serif: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  background-color: var(--color-ink);
+}
+
+/* Prose (rendered concept body) reads as ink-on-paper, not a generic
+   Tailwind-typography default. */
+.prose-paper {
+  --tw-prose-body: var(--color-paper-ink);
+  --tw-prose-headings: var(--color-paper-ink);
+  --tw-prose-links: var(--color-spark-dim);
+  --tw-prose-bold: var(--color-paper-ink);
+  --tw-prose-bullets: var(--color-paper-line);
+}

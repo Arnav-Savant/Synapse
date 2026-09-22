@@ -2,16 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchHealth } from "../api/health";
 
-/** Small backend-connectivity indicator, replaces the Phase 0 full-page health view. */
+/** Small backend-connectivity indicator. */
 export function HealthBadge() {
   const { data, isPending, isError } = useQuery({ queryKey: ["health"], queryFn: fetchHealth });
 
   const label = isPending ? "checking…" : isError ? "backend unreachable" : data.status;
-  const color = isPending ? "bg-slate-300" : isError ? "bg-red-500" : "bg-emerald-500";
+  const color = isPending ? "bg-graphite" : isError ? "bg-rose-400" : "bg-emerald-400";
 
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-500">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
+    <div className="flex items-center gap-2 font-mono text-xs text-graphite">
+      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
       {label}
     </div>
   );

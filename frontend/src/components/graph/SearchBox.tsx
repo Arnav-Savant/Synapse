@@ -16,17 +16,17 @@ export function SearchBox({ nodes, query, onQueryChange, onSelect }: SearchBoxPr
       <input
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search concepts…"
-        className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+        placeholder="search concepts…"
+        className="w-64 border-b border-ink-line bg-transparent py-1.5 text-graphite placeholder-graphite/60 focus:border-spark focus:text-paper focus:outline-none"
       />
       {query.trim() && (
-        <ul className="absolute z-10 mt-1 max-h-64 w-64 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          {results.length === 0 && <li className="px-3 py-2 text-sm text-slate-400">No matches</li>}
+        <ul className="absolute z-10 mt-1 max-h-64 w-64 overflow-auto border border-ink-line bg-ink-soft shadow-lg shadow-black/40">
+          {results.length === 0 && <li className="px-3 py-2 text-graphite/60">no matches</li>}
           {results.map((node) => (
             <li key={node.id}>
               <button
                 onClick={() => onSelect(node.id)}
-                className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                className="block w-full px-3 py-2 text-left text-paper hover:bg-ink hover:text-spark"
               >
                 {node.title}
               </button>

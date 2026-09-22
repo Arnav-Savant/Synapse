@@ -13,15 +13,15 @@ export function FilterControls({ domainOptions, statusOptions, filters, onChange
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-4 text-sm">
+    <div className="flex flex-wrap items-center gap-4">
       <FilterGroup
-        label="Domain"
+        label="domain"
         options={domainOptions}
         selected={filters.domains}
         onToggle={(value) => onChange({ ...filters, domains: toggle(filters.domains, value) })}
       />
       <FilterGroup
-        label="Status"
+        label="status"
         options={statusOptions}
         selected={filters.statuses}
         onToggle={(value) => onChange({ ...filters, statuses: toggle(filters.statuses, value) })}
@@ -45,15 +45,15 @@ function FilterGroup({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-slate-500">{label}:</span>
+      <span className="text-graphite">{label}:</span>
       {options.map((option) => (
         <button
           key={option}
           onClick={() => onToggle(option)}
-          className={`rounded-full border px-2 py-0.5 text-xs ${
+          className={`rounded-sm border px-2 py-0.5 ${
             selected.includes(option)
-              ? "border-slate-800 bg-slate-800 text-white"
-              : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              ? "border-spark text-spark"
+              : "border-ink-line text-graphite hover:border-graphite hover:text-paper"
           }`}
         >
           {option}

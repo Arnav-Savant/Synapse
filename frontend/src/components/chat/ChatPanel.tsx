@@ -16,7 +16,10 @@ interface ChatPanelProps {
 
 /** Global chat, answered from the knowledge base — no API key required
  * (docs/PLAN.md Phase 6). `contextSlug`, when set, scopes every message in
- * this session to that concept until cleared. */
+ * this session to that concept until cleared. Questions render in the
+ * mono/system voice (a raw query); answers render in the serif voice
+ * (synthesized from the knowledge base) — the same distinction used
+ * everywhere else in the app. */
 export function ChatPanel({ contextSlug, onClearContext }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -39,52 +42,47 @@ export function ChatPanel({ contextSlug, onClearContext }: ChatPanelProps) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-3">
+    <div className="max-w-[720px] space-y-4">
       {contextSlug && (
-        <div className="flex items-center gap-2 rounded-md bg-slate-100 px-3 py-1.5 text-xs text-slate-600">
-          <span>
-            Asking about: <span className="font-medium">{contextSlug}</span>
-          </span>
-          <button onClick={onClearContext} className="text-slate-400 hover:text-slate-600">
+        <div className="flex items-center gap-2 font-mono text-xs text-graphite">
+          <span className="h-1.5 w-1.5 rounded-full bg-spark" />
+          asking about <span className="text-spark">{contextSlug}</span>
+          <button onClick={onClearContext} className="text-graphite hover:text-paper">
             ×
           </button>
         </div>
       )}
 
-      <div className="min-h-[420px] space-y-3 rounded-lg border border-slate-200 p-4">
+      <div className="min-h-[420px] space-y-5 border border-paper-line bg-paper p-6">
         {messages.length === 0 && (
-          <p className="text-sm text-slate-400">
-            Ask a question — answered using your knowledge base, no API key required.
+          <p className="font-mono text-xs text-paper-ink/40">
+            ask a question — answered using your knowledge base, no API key required.
           </p>
         )}
-        {messages.map((msg, index) => (
-          <div key={index} className={msg.role === "user" ? "text-right" : "text-left"}>
-            <span
-              className={`inline-block max-w-[85%] rounded-lg px-3 py-2 text-left text-sm ${
-                msg.role === "user" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-800"
-              }`}
-            >
+        {messages.map((msg, index) =>
+          msg.role === "user" ? (
+            <p key={index} className="font-mono text-xs text-paper-ink/60">
+              <span className="text-spark-dim">›</span> {msg.text}
+            </p>
+          ) : (
+            <p key={index} className="max-w-[65ch] font-serif text-base leading-relaxed text-paper-ink">
               {msg.text}
-            </span>
-          </div>
-        ))}
-        {sendMutation.isPending && <p className="text-sm text-slate-400">Thinking…</p>}
+            </p>
+          ),
+        )}
+        {sendMutation.isPending && <p className="font-mono text-xs text-paper-ink/40">thinking…</p>}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-4 font-mono text-xs">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Ask about your knowledge base…"
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+          placeholder="ask about your knowledge base…"
+          className="flex-1 border-b border-ink-line bg-transparent py-2 text-paper placeholder-graphite/60 focus:border-spark focus:outline-none"
         />
-        <button
-          onClick={handleSend}
-          disabled={sendMutation.isPending}
-          className="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          Send
+        <button onClick={handleSend} disabled={sendMutation.isPending} className="text-spark disabled:opacity-40">
+          send
         </button>
       </div>
     </div>

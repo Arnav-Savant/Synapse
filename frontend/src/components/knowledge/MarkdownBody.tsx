@@ -25,14 +25,14 @@ export function MarkdownBody({ body, onNavigate }: MarkdownBodyProps) {
         return (
           <button
             onClick={() => onNavigate(target)}
-            className="text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900"
+            className="text-spark-dim underline decoration-spark-dim/40 underline-offset-2 hover:text-paper-ink"
           >
             {children}
           </button>
         );
       }
       return (
-        <a href={href} target="_blank" rel="noreferrer" className="text-sky-700 underline">
+        <a href={href} target="_blank" rel="noreferrer" className="text-spark-dim underline">
           {children}
         </a>
       );
@@ -40,7 +40,7 @@ export function MarkdownBody({ body, onNavigate }: MarkdownBodyProps) {
   };
 
   return (
-    <div className="prose prose-sm prose-slate max-w-none">
+    <div className="prose-paper prose prose-base max-w-none font-serif">
       <ReactMarkdown components={components} urlTransform={urlTransform}>
         {preprocessWikilinks(body)}
       </ReactMarkdown>
