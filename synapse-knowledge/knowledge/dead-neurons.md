@@ -32,8 +32,8 @@ realistic input. An activation function like ReLU maps every negative $z$ to
 0, so the neuron's output is stuck at 0.
 
 It's "permanent" because ReLU's gradient is also zero for negative inputs.
-With no gradient flowing back through [[backpropagation]], training can't
-adjust the neuron's weights or bias to revive it.
+With no gradient flowing back, training can't adjust the neuron's weights or
+bias to revive it.
 
 ## Why it matters
 

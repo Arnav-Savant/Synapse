@@ -6,7 +6,7 @@ domains: [neural-networks, machine-learning]
 status: developing
 created: 2026-09-22
 updated: 2026-09-22
-sources: ["neural-networks/neuron-weights-and-bias.md", "neural-networks/backpropagation-chain-rule-gradients.md"]
+sources: ["neural-networks/neuron-weights-and-bias.md"]
 relationships:
   - type: subtopic-of
     target: artificial-neuron
@@ -59,7 +59,5 @@ from the origin. That's the bias's job. See [[decision-boundary]] and
 
 - Weights must be **randomly initialized**. Initializing them all to zero
   makes every neuron identical. See [[weight-initialization]].
-- Weights are learned by using [[backpropagation]] to compute the gradient
-  of the loss with respect to each weight.
 - In practice, a layer's weights are stored as a matrix. The forward pass is
   a matrix multiplication, which GPUs run in parallel.

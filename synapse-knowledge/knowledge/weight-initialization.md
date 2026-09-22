@@ -27,8 +27,7 @@ matters.
 ## The key rule: break symmetry
 
 If **every weight starts at zero**, every neuron in a layer gets the same
-inputs, computes the same output, and so receives the same gradient from
-[[backpropagation]] and is updated the same way.
+inputs, computes the same output, and so would be updated the same way.
 The neurons stay identical copies and the layer never learns more than one
 neuron's worth of features. Initializing weights **randomly** breaks this
 symmetry, so each neuron can specialize.
