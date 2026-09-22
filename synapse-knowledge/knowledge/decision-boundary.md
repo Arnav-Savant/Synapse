@@ -5,8 +5,8 @@ aliases: [separating hyperplane, classification boundary]
 domains: [machine-learning, neural-networks]
 status: stub
 created: 2026-09-22
-updated: 2026-09-22
-sources: ["neural-networks/neuron-weights-and-bias.md"]
+updated: 2026-09-23
+sources: ["neural-networks/neuron-weights-and-bias.md", "neural-networks/activation-functions-sigmoid-relu.md"]
 relationships:
   - type: related-to
     target: artificial-neuron
@@ -43,6 +43,12 @@ One neuron can only draw a straight (linear) boundary. Networks of many
 neurons, with non-linear activation functions between layers, combine many
 such boundaries to approximate very complex, non-linear ones. This is how
 networks handle tasks like face recognition.
+
+The activation functions are essential here. Without them, stacking layers
+of linear neurons still gives one linear function, so even a 1,000-layer
+network could only draw a single flat hyperplane. Bending, squashing, or
+thresholding $z$ between layers is what lets the combined boundary curve.
+See [[activation-function]].
 
 *Stub: currently covers only the linear, single-neuron case from the
 source material.*

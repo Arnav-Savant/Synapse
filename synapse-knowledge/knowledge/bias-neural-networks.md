@@ -5,8 +5,8 @@ aliases: [bias, bias term, bias parameter, neuron bias]
 domains: [neural-networks, machine-learning]
 status: developing
 created: 2026-09-22
-updated: 2026-09-22
-sources: ["neural-networks/neuron-weights-and-bias.md"]
+updated: 2026-09-23
+sources: ["neural-networks/neuron-weights-and-bias.md", "neural-networks/activation-functions-sigmoid-relu.md"]
 relationships:
   - type: subtopic-of
     target: artificial-neuron
@@ -63,3 +63,8 @@ start biases at **0**. This is fine because the randomly initialized
 If a bias becomes very negative (e.g. $b = -10000$), $z$ is strongly negative
 for every realistic input. A following ReLU then always outputs 0, and the
 neuron stops participating in learning. See [[dead-neurons]].
+
+Because the bias shifts $z$ by the same amount for every input, it's the
+parameter that can switch a [[relu]] neuron off everywhere at once. This is
+the "dying ReLU" problem, and it can happen during training when weight
+updates push the bias strongly negative.

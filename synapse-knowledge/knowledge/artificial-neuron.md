@@ -5,8 +5,8 @@ aliases: [neuron, node, unit, perceptron unit]
 domains: [neural-networks, machine-learning]
 status: developing
 created: 2026-09-22
-updated: 2026-09-22
-sources: ["neural-networks/neuron-weights-and-bias.md"]
+updated: 2026-09-23
+sources: ["neural-networks/neuron-weights-and-bias.md", "neural-networks/activation-functions-sigmoid-relu.md"]
 relationships: []
 ---
 
@@ -62,6 +62,14 @@ class Neuron:
 
 The `np.random.randn` line matters. See [[weight-initialization]].
 
+## Second step: the activation
+
+The raw $z$ then goes through an [[activation-function]], $a = f(z)$, and
+that $a$ is what the next layer receives. This step is what makes networks
+more than linear: without it, any stack of neurons collapses into a single
+linear transformation. The common choices are [[relu]] for hidden layers and
+[[sigmoid-function]] for the output of a binary classifier.
+
 ## Mental model: deciding to buy a house
 
 - **Inputs**: price, commute time, neighborhood safety.
@@ -86,6 +94,8 @@ inputs has 500 weights and 1 bias.
 
 - **Dead neurons**: the output is pushed so negative that a following ReLU
   always outputs zero. See [[dead-neurons]].
+- **Saturation**: with sigmoid, an extreme $z$ lands on a flat part of the
+  curve and the neuron barely learns. See [[vanishing-gradient-problem]].
 - **Symmetric initialization**: if all weights start at zero, every neuron
   computes the same thing. See [[weight-initialization]].
 
