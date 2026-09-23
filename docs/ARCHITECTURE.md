@@ -4,15 +4,13 @@ Companion to `REQUIREMENTS.md` (what) and `PLAN.md` (build order). This
 document is the "how and why" — every non-obvious decision below has its
 rationale next to it so a future session doesn't have to rediscover it.
 
-## 1. Two repositories, not one
+## 1. One repository — content lives inside the app repo
 
-**Decision:** the application code (this repo) and the knowledge content
-(source material + generated knowledge) live in **two separate Git
-repositories**.
+**Decision (revised):** the knowledge content (source material + generated
+knowledge) lives as a plain subdirectory of this repo, committed to the same
+Git history as the application code — not in a separate repository.
 
-- `Synapse/` (this repo) — backend, frontend, docs. A normal software repo.
-- `<KNOWLEDGE_REPO_PATH>/` (default: `~/synapse-knowledge`,
-  configurable via `.env`) — the content repo:
+- `Synapse/` (this repo) — backend, frontend, docs, **and**:
   ```
   synapse-knowledge/
     source/          # raw material, append-only
@@ -21,22 +19,30 @@ repositories**.
     .synapse/         # app-managed operational state (see §7)
     CLAUDE.md          # instructions for the Claude Code processing engine
   ```
+- `KNOWLEDGE_REPO_PATH` (`.env`, optional) still exists as a config value —
+  it defaults to `synapse-knowledge/` inside this repo, computed relative to
+  the backend package (`backend/app/core/config.py`), so a fresh clone works
+  with no per-machine override. Set it only if you want the content
+  somewhere else entirely.
 
-**Why:** the prompt that seeded this project shows `source/` and
-`knowledge/` as if they might sit inside the app repo, but mixing personal
-study content with application source code in one Git history is a real
-cost: every "processed a ChatGPT export" commit pollutes the app's commit
-log (and vice versa), `.gitignore` gymnastics are needed to keep app tooling
-(`node_modules`, build artifacts) out of a content repo and content out of
-CI, and a single `CLAUDE.md` at the app repo root would have to serve two
-unrelated purposes (guiding coding sessions vs. guiding knowledge-processing
-sessions). Splitting them costs one config value
-(`KNOWLEDGE_REPO_PATH`) and buys a clean history for both. **This is a
-deviation from a literal reading of the prompt and is flagged as a
-recommendation** — if you'd rather keep one repo, it only affects Phase 0
-scaffolding and Phase 2's `--add-dir` path.
-
-The knowledge repo is *itself* a Git repo (see §5, "Git as the safety net").
+**History:** this project originally split content into a second Git
+repository specifically to keep "processed a ChatGPT export" commits out of
+the app's own commit log, and vice versa (see git history of this file for
+the original rationale). That tradeoff was reversed on explicit request —
+one repo is simpler to work with day to day, and content commits mixing
+into the app's log is an accepted cost. Two things this reversal changes in
+practice:
+- `git_guard.py`'s `commit_path`/`finalize` now pathspec-scope every
+  `git commit` call (`-- <paths>`) rather than committing whatever the
+  index happens to hold — content and app code now share one index, so a
+  content commit must never sweep in an unrelated staged app-code change
+  (or vice versa).
+- `--add-dir` in the Claude Code invocation (§5) now points at a
+  subdirectory of the same repo Claude Code (the coding assistant) is also
+  editing, not an unrelated filesystem location — the `--restricted`
+  tool allowlist and the git safety net (§5) are what keep a
+  knowledge-processing run's writes confined to `source/`/`knowledge/`,
+  not repo separation.
 
 ## 2. High-level shape
 

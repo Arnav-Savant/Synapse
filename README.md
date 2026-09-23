@@ -24,8 +24,8 @@ code has not been written yet. See:
 
 - **Filesystem is the source of truth.** Raw material lives in `source/`
   (untouched, ever) and generated knowledge lives in `knowledge/` as
-  Markdown with frontmatter — both in a separate content repository from
-  this application's code (see `ARCHITECTURE.md` §1). No database.
+  Markdown with frontmatter — both inside `synapse-knowledge/`, a
+  subdirectory of this repo (see `ARCHITECTURE.md` §1). No database.
 - **One global graph.** Every concept is a single node regardless of how
   many different topics/contexts it shows up in; the graph is derived from
   the canonical Markdown, not maintained separately.

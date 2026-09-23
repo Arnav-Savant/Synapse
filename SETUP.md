@@ -20,13 +20,12 @@ tested, not hard minimums beyond what's noted.)
 
 ## One-time setup
 
-1. Create the knowledge content repository — a separate git repo from this
-   one (see `docs/ARCHITECTURE.md` §1). It defaults to `~/synapse-knowledge`;
-   pick any location you want, as long as `KNOWLEDGE_REPO_PATH` (below)
-   points at it.
+1. Create the knowledge content directory — a plain subdirectory of this
+   repo (see `docs/ARCHITECTURE.md` §1), committed to the same Git history
+   as the app. It defaults to `synapse-knowledge/` at the repo root; only
+   set `KNOWLEDGE_REPO_PATH` (below) if you want it somewhere else.
    ```bash
-   mkdir -p ~/synapse-knowledge/{source,knowledge,assets,.synapse/jobs,.synapse/logs}
-   cd ~/synapse-knowledge && git init
+   mkdir -p synapse-knowledge/{source,knowledge,assets,.synapse/jobs,.synapse/logs}
    ```
 2. Backend environment file:
    ```bash
@@ -105,5 +104,5 @@ poetry run pytest
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `KNOWLEDGE_REPO_PATH` | Absolute path to the knowledge content repo | `~/synapse-knowledge` |
+| `KNOWLEDGE_REPO_PATH` | Absolute path to the knowledge content directory (optional) | `synapse-knowledge/` inside this repo |
 | `FRONTEND_ORIGIN` | Allowed CORS origin for the backend (only matters if you bypass the Vite proxy) | `http://localhost:5173` |
