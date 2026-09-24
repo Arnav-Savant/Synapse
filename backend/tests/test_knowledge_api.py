@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.main import app
 from app.services import graph_service
 
@@ -35,7 +35,7 @@ def _client_for(tmp_path, git_repo_factory) -> TestClient:
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=tmp_path, check=True)
 
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
     return TestClient(app)
 
 

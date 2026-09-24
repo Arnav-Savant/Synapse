@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.claude_runner import runner
 from app.claude_runner.runner import ClaudeRunResult
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.main import app
 
 NAMING_MARKER = "Respond with ONLY a single JSON object"
@@ -37,7 +37,7 @@ def _fake_run_claude(naming_response: dict | None = None):
 def _client_for(tmp_path, git_repo_factory, monkeypatch, naming_response: dict | None = None) -> TestClient:
     git_repo_factory(tmp_path)
     monkeypatch.setattr(runner, "run_claude", _fake_run_claude(naming_response))
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
     return TestClient(app)
 
 

@@ -21,7 +21,7 @@ from app.api.knowledge import router as knowledge_router
 from app.api.sources import router as sources_router
 from app.claude_runner.chat_engine import ChatEngineError
 from app.claude_runner.naming import NamingError
-from app.core.config import get_settings
+from app.core.config import get_server_config
 from app.jobs import store as job_store
 from app.jobs.queue import JobQueue
 from app.knowledge.frontmatter import FrontmatterError
@@ -29,7 +29,7 @@ from app.repositories.knowledge_repo import KnowledgeFileNotFoundError
 from app.repositories.paths import PathTraversalError
 from app.repositories.source_repo import SourceFileNotFoundError
 
-settings = get_settings()
+settings = get_server_config()
 
 
 @asynccontextmanager

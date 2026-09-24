@@ -10,14 +10,14 @@ than growing this one.
 
 from fastapi import APIRouter, Depends
 
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.schemas.health import HealthResponse
 
 router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
+def health(settings: ServerConfig = Depends(get_server_config)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         knowledge_repo_path=str(settings.knowledge_repo_path),

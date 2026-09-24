@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.main import app
 from app.services import graph_service
 
@@ -31,7 +31,7 @@ def test_get_graph_returns_nodes_and_edges(tmp_path):
     )
 
     graph_service.invalidate(tmp_path)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.get("/api/graph")

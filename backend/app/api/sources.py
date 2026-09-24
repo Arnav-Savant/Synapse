@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, UploadFile
 
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.jobs.queue import JobQueue, get_job_queue
 from app.schemas.sources import (
     CreateSourceRequest,
@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/sources", response_model=SourceFileListResponse)
-def list_sources(settings: Settings = Depends(get_settings)) -> SourceFileListResponse:
+def list_sources(settings: ServerConfig = Depends(get_server_config)) -> SourceFileListResponse:
     sources = source_service.list_sources(settings.knowledge_repo_path)
     return SourceFileListResponse(sources=[SourceFileOut(**vars(s)) for s in sources])
 
@@ -25,7 +25,7 @@ def list_sources(settings: Settings = Depends(get_settings)) -> SourceFileListRe
 @router.post("/sources", response_model=CreateSourceResponse, status_code=201)
 async def create_source(
     body: CreateSourceRequest,
-    settings: Settings = Depends(get_settings),
+    settings: ServerConfig = Depends(get_server_config),
     queue: JobQueue = Depends(get_job_queue),
 ) -> CreateSourceResponse:
     source, job = await source_service.create_text_source(
@@ -41,7 +41,7 @@ async def create_source(
 
 @router.post("/sources/upload", response_model=SourceFileOut, status_code=201)
 async def upload_source(
-    file: UploadFile, settings: Settings = Depends(get_settings)
+    file: UploadFile, settings: ServerConfig = Depends(get_server_config)
 ) -> SourceFileOut:
     data = await file.read()
     source = source_service.upload_binary_source(settings.knowledge_repo_path, file.filename, data)
@@ -50,7 +50,7 @@ async def upload_source(
 
 @router.get("/sources/{relative_path:path}", response_model=SourceContentResponse)
 def get_source_content(
-    relative_path: str, settings: Settings = Depends(get_settings)
+    relative_path: str, settings: ServerConfig = Depends(get_server_config)
 ) -> SourceContentResponse:
     content = source_service.read_source(settings.knowledge_repo_path, relative_path)
     return SourceContentResponse(relative_path=relative_path, content=content)

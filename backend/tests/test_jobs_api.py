@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.claude_runner import git_guard, runner
 from app.claude_runner.runner import ClaudeRunResult
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.main import app
 from app.services import graph_service
 
@@ -38,7 +38,7 @@ def test_process_source_job_succeeds_and_commits(tmp_path, monkeypatch, git_repo
         )
 
     monkeypatch.setattr(runner, "run_claude", fake_run_claude)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.post("/api/jobs/process", json={"source_relative_path": "chat-001.md"})
@@ -75,7 +75,7 @@ def test_successful_job_invalidates_graph_cache(tmp_path, monkeypatch, git_repo_
         )
 
     monkeypatch.setattr(runner, "run_claude", fake_run_claude)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.post("/api/jobs/process", json={"source_relative_path": "chat-001.md"})
@@ -104,7 +104,7 @@ def test_process_source_job_reverts_source_changes_and_fails(tmp_path, monkeypat
         )
 
     monkeypatch.setattr(runner, "run_claude", fake_run_claude)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.post("/api/jobs/process", json={"source_relative_path": "chat-001.md"})
@@ -124,7 +124,7 @@ def test_process_source_job_fails_cleanly_when_claude_errors(tmp_path, monkeypat
     git_repo_factory(tmp_path)
     _add_committed_source(tmp_path, "chat-001.md", "hello")
     monkeypatch.setattr(runner, "run_claude", fake_run_claude)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.post("/api/jobs/process", json={"source_relative_path": "chat-001.md"})
@@ -138,7 +138,7 @@ def test_process_source_job_fails_cleanly_when_claude_errors(tmp_path, monkeypat
 
 def test_get_unknown_job_returns_404(tmp_path):
     (tmp_path / ".synapse" / "jobs").mkdir(parents=True)
-    app.dependency_overrides[get_settings] = lambda: Settings(knowledge_repo_path=tmp_path)
+    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
 
     with TestClient(app) as client:
         response = client.get("/api/jobs/does-not-exist")

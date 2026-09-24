@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
-from app.core.config import Settings, get_settings
+from app.core.config import ServerConfig, get_server_config
 from app.knowledge import frontmatter
 from app.knowledge.frontmatter import ParsedConcept
 from app.schemas.knowledge import (
@@ -17,20 +17,20 @@ router = APIRouter()
 
 
 @router.get("/knowledge", response_model=KnowledgeListResponse)
-def list_knowledge(settings: Settings = Depends(get_settings)) -> KnowledgeListResponse:
+def list_knowledge(settings: ServerConfig = Depends(get_server_config)) -> KnowledgeListResponse:
     slugs = knowledge_service.list_knowledge(settings.knowledge_repo_path)
     return KnowledgeListResponse(slugs=slugs)
 
 
 @router.get("/knowledge/{slug}", response_model=KnowledgeDetailResponse)
-def get_knowledge(slug: str, settings: Settings = Depends(get_settings)) -> KnowledgeDetailResponse:
+def get_knowledge(slug: str, settings: ServerConfig = Depends(get_server_config)) -> KnowledgeDetailResponse:
     parsed, raw = knowledge_service.read_knowledge(settings.knowledge_repo_path, slug)
     return _to_response(slug, parsed, raw)
 
 
 @router.put("/knowledge/{slug}", response_model=KnowledgeDetailResponse)
 def update_knowledge(
-    slug: str, body: UpdateKnowledgeRequest, settings: Settings = Depends(get_settings)
+    slug: str, body: UpdateKnowledgeRequest, settings: ServerConfig = Depends(get_server_config)
 ) -> KnowledgeDetailResponse:
     serialized = knowledge_service.update_knowledge(settings.knowledge_repo_path, slug, body.content)
     parsed = frontmatter.parse(serialized)

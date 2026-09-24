@@ -16,7 +16,13 @@ services:
     depends_on:
       - postgres
     environment:
-      DATABASE_URL: postgresql+asyncpg://synapse:synapse@postgres:5432/synapse
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: synapse
+      DATABASE_PASSWORD: synapse
+      DATABASE_NAME: synapse
+      APP_HOST: "127.0.0.1"
+      APP_PORT: "8000"
       KUZU_DB_PATH: /data/kuzu
     env_file:
       - .env
