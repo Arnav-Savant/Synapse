@@ -6,3 +6,7 @@
 .env.local
 
 .DS_Store
+
+# Brainstorming/planning working docs (spec + plan per feature) - not part of
+# the committed doc set; see docs/ for the master project documentation.
+docs/superpowers/
