@@ -6,6 +6,7 @@ FastAPI dependency derived from it), never via `os.environ` calls of its
 own.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,7 +26,14 @@ class Settings(BaseSettings):
     # binds to 127.0.0.1 (see SETUP.md) — no other origins are permitted.
     frontend_origin: str = "http://localhost:5173"
 
+    database_url: str = "postgresql+asyncpg://synapse:synapse@localhost:5432/synapse"
+    kuzu_db_path: Path = _REPO_ROOT / ".synapse-graph"
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_env_var(name: str) -> str | None:
+    return os.environ.get(name)

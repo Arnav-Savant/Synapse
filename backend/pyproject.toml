@@ -9,6 +9,10 @@ dependencies = [
     "pydantic-settings>=2.4",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "kuzu>=0.6",
 ]
 
 [tool.poetry]
@@ -17,12 +21,14 @@ package-mode = false
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.3"
 httpx = ">=0.27"
+pytest-asyncio = ">=0.24"
 
 [tool.pytest.ini_options]
 # Without __init__.py files (app/ and tests/ are namespace packages),
 # pytest's import-mode heuristic doesn't put backend/ on sys.path on its
 # own — this makes `from app...` resolve during test collection.
 pythonpath = ["."]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
