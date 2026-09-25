@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.agent_config import router as agent_config_router
 from app.api.chat import router as chat_router
 from app.api.graph import router as graph_router
 from app.api.health import router as health_router
@@ -31,9 +32,11 @@ from app.db.seed import seed_default_agent_configs
 from app.jobs import store as job_store
 from app.jobs.queue import JobQueue
 from app.knowledge.frontmatter import FrontmatterError
+from app.repositories.agent_config_repo import AgentConfigNotFoundError
 from app.repositories.knowledge_repo import KnowledgeFileNotFoundError
 from app.repositories.paths import PathTraversalError
 from app.repositories.source_repo import SourceFileNotFoundError
+from app.services.agent_config_service import AgentConfigValidationError
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -121,9 +124,22 @@ async def handle_naming_error(request: Request, exc: NamingError) -> JSONRespons
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
+@app.exception_handler(AgentConfigNotFoundError)
+async def handle_agent_config_not_found(request: Request, exc: AgentConfigNotFoundError) -> JSONResponse:
+    logger.info("agent config not found: %s", exc)
+    return JSONResponse(status_code=404, content={"detail": f"agent config not found: {exc}"})
+
+
+@app.exception_handler(AgentConfigValidationError)
+async def handle_agent_config_validation_error(request: Request, exc: AgentConfigValidationError) -> JSONResponse:
+    logger.warning("agent config validation error: %s", exc)
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
 app.include_router(health_router, prefix="/api")
 app.include_router(sources_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 app.include_router(graph_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(agent_config_router, prefix="/api")
