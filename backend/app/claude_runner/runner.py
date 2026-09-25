@@ -9,8 +9,11 @@ still auto-loaded (that's why `--restricted` is used instead of `--bare`).
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 READ_WRITE_TOOLS = "Read,Write,Edit,Glob,Grep"
 READ_ONLY_TOOLS = "Read,Glob,Grep"
@@ -38,6 +41,7 @@ async def run_claude(
     tools: str = READ_WRITE_TOOLS,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> ClaudeRunResult:
+    logger.info("invoking claude -p in %s (timeout=%ss)", repo_path, timeout_seconds)
     process = await asyncio.create_subprocess_exec(
         "claude",
         "-p",
@@ -64,9 +68,11 @@ async def run_claude(
     except asyncio.TimeoutError as exc:
         process.kill()
         await process.wait()
+        logger.error("claude invocation timed out after %ss in %s", timeout_seconds, repo_path)
         raise ClaudeRunnerError(f"claude invocation timed out after {timeout_seconds}s") from exc
 
     if process.returncode != 0:
+        logger.error("claude exited with code %s in %s", process.returncode, repo_path)
         raise ClaudeRunnerError(
             f"claude exited with code {process.returncode}: {stderr.decode(errors='replace')[:2000]}"
         )
@@ -74,12 +80,20 @@ async def run_claude(
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
+        logger.error("claude output was not valid JSON: %s", exc)
         raise ClaudeRunnerError(f"could not parse claude output as JSON: {exc}") from exc
 
-    return ClaudeRunResult(
+    result = ClaudeRunResult(
         is_error=payload.get("is_error", False),
         result_text=payload.get("result", ""),
         session_id=payload.get("session_id"),
         total_cost_usd=payload.get("total_cost_usd"),
         permission_denials=payload.get("permission_denials", []),
     )
+    logger.info(
+        "claude invocation finished: is_error=%s cost_usd=%s session_id=%s",
+        result.is_error,
+        result.total_cost_usd,
+        result.session_id,
+    )
+    return result

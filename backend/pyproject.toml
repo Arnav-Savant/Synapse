@@ -14,6 +14,7 @@ dependencies = [
     "asyncpg>=0.29",
     "alembic>=1.13",
     "kuzu>=0.6",
+    "mcp>=1.9",
 ]
 
 [tool.poetry]
@@ -30,6 +31,13 @@ pytest-asyncio = ">=0.24"
 # own — this makes `from app...` resolve during test collection.
 pythonpath = ["."]
 asyncio_mode = "auto"
+# postgres_connection is a module-level singleton (one AsyncEngine/pool for
+# the whole process); the default function-scoped event loop would tear
+# that loop down after every async test while pooled asyncpg connections
+# stay open, so the next test's loop reuses connections bound to a dead
+# loop. Session-scoped loop keeps one loop alive for the whole run instead.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

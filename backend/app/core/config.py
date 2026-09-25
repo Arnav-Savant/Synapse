@@ -45,6 +45,7 @@ class ServerConfig:
         app_host: str | None = None,
         app_port: int | None = None,
         kuzu_db_path: Path | None = None,
+        log_level: str | None = None,
     ) -> None:
         self.knowledge_repo_path = _resolve(
             knowledge_repo_path, "KNOWLEDGE_REPO_PATH", _REPO_ROOT / "synapse-knowledge", Path
@@ -64,6 +65,8 @@ class ServerConfig:
         self.app_port = _resolve(app_port, "APP_PORT", 8000, int)
 
         self.kuzu_db_path = _resolve(kuzu_db_path, "KUZU_DB_PATH", _REPO_ROOT / ".synapse-graph", Path)
+
+        self.log_level = _resolve(log_level, "LOG_LEVEL", "INFO").upper()
 
     @property
     def database_url(self) -> str:

@@ -10,6 +10,7 @@ having the knowledge base update is meant to be one action, not two — see
 docs/ARCHITECTURE.md §14.2: routes stay thin, services hold the logic.
 """
 
+import logging
 from pathlib import Path
 
 from app.claude_runner import git_guard, naming
@@ -18,6 +19,8 @@ from app.jobs.store import Job
 from app.repositories import source_repo
 from app.repositories.source_repo import SourceFile
 from app.services import job_service
+
+logger = logging.getLogger(__name__)
 
 _TEXT_EXTENSIONS = (".md", ".txt")
 
@@ -67,6 +70,7 @@ async def create_text_source(
     source = source_repo.write_text_source(knowledge_repo_path, category, filename, content)
     _commit_source(knowledge_repo_path, source)
     job = await job_service.enqueue_processing(knowledge_repo_path, source.relative_path, queue)
+    logger.info("source saved: %s (job %s enqueued)", source.relative_path, job.id)
     return source, job
 
 

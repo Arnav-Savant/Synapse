@@ -5,11 +5,14 @@ or writes that directory.
 """
 
 import json
+import logging
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 
@@ -49,6 +52,7 @@ def create_job(knowledge_repo_path: Path, source_relative_path: str) -> Job:
         updated_at=now,
     )
     save_job(knowledge_repo_path, job)
+    logger.info("job created: id=%s source=%s", job.id, source_relative_path)
     return job
 
 
@@ -84,4 +88,5 @@ def reconcile_orphaned_running_jobs(knowledge_repo_path: Path) -> list[Job]:
             job.error = "backend restarted while this job was running"
             save_job(knowledge_repo_path, job)
             reconciled.append(job)
+            logger.warning("job %s reconciled to failed: backend restarted while it was running", job.id)
     return reconciled

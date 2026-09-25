@@ -608,7 +608,58 @@ pass.
   the frontend graph logic ever needs to move (e.g. server-side filtering
   at larger scale).
 
-### 14.3 What this deliberately doesn't mean
+### 14.3 Mandatory per-change checklist
+
+Every piece of backend code written from this point forward — new or
+modified, however small it looks — must satisfy all of the following
+before it's considered done. These are checked as part of the change
+itself, not left to a final cleanup pass:
+
+- **Exception handling.** Any operation that can fail (I/O, subprocess,
+  network, parsing, a third-party call) is handled at the layer that can
+  meaningfully react to it — surfaced as a typed domain exception (the
+  `*Error` classes already used throughout, e.g. `ClaudeRunnerError`,
+  `PathTraversalError`) and mapped to an HTTP response centrally in
+  `main.py`. Never silently swallowed, never left to propagate as a raw,
+  unhandled traceback to the caller.
+- **Class-based modularity where a module owns real state or a cohesive
+  set of operations acting on shared internal data** (a connection, a
+  resource with a defined lifecycle) — a class, not a loose bag of
+  module-level functions passing the same arguments around (e.g.
+  `PostgresConnection` in `core/postgres_connection.py`). Plain functions
+  remain correct for genuinely stateless, single-purpose logic (parsing,
+  pure computation) — this is the same "no abstraction without a reason"
+  principle as §14.4, applied to this axis, not overridden by it.
+- **Appropriate naming**: a name says what a thing is/does without the
+  reader needing to open the file (`PostgresConnection`,
+  `seed_default_agent_configs`, `ClaudeRunnerError`) — no abbreviations
+  that aren't already established in this codebase, no single-letter
+  names outside a tight local scope (a comprehension, a short loop).
+- **Logging.** Every module that does meaningful operational work (not a
+  pure/parsing function) gets a `logger = logging.getLogger(__name__)` and
+  logs at the points that matter: something started, something finished
+  (with outcome), something failed, a safety net fired (e.g.
+  `git_guard.finalize`'s revert-on-`source/`-change). Configuration is
+  centralized in `core/logging_config.py`'s `configure_logging()`, called
+  once at process startup in `main.py` — never `print()`, never an ad hoc
+  handler set up elsewhere. Match level to severity: `info` for normal
+  lifecycle events, `warning` for a recovered/degraded condition, `error`
+  or `exception` for a failure that surfaces to the caller.
+- **Files live in the folder their responsibility already maps to**, per
+  the layout in §6 (`core/` for cross-cutting config/connections, `db/`
+  for ORM models/migrations/embedded-graph schema once the storage layer
+  lands — see the multi-agent architecture spec). Never a new top-level
+  file or a catch-all `utils.py`. If a change doesn't obviously belong in
+  an existing module, that's a signal to reconsider the folder
+  responsibilities in §6/§14.1 before adding one, not to drop it wherever
+  is convenient.
+
+None of this is a new principle — §14.1–14.2 already established
+modularity and deliberate pattern use. This section makes explicit that
+exception handling and logging are held to the same bar, on every change,
+not just for new subsystems.
+
+### 14.4 What this deliberately doesn't mean
 
 Per the project's own stated philosophy (avoid unnecessary abstraction):
 this is about separating genuinely distinct responsibilities and reusing an

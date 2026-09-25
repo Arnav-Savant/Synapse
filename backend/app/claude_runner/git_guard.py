@@ -13,8 +13,11 @@ Two uses:
   committed, giving every run a real audit trail for free.
 """
 
+import logging
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Job bookkeeping (`.synapse/`), CLAUDE.md edits, .gitignore, etc. are
 # deliberately out of scope for the clean/revert/commit dance below — this
@@ -91,6 +94,7 @@ def commit_path(repo_path: Path, relative_path: str, commit_message: str) -> Non
         return
     _run_git(repo_path, "add", "--", relative_path)
     _run_git(repo_path, "commit", "-m", commit_message, "--", relative_path)
+    logger.info("committed %s: %s", relative_path, commit_message)
 
 
 def ensure_clean(repo_path: Path) -> None:
@@ -113,10 +117,12 @@ def finalize(repo_path: Path, commit_message: str) -> list[str]:
     if other_touched:
         _run_git(repo_path, "add", "--", *other_touched)
         _run_git(repo_path, "commit", "-m", commit_message, "--", *other_touched)
+        logger.info("committed %d knowledge/asset file(s): %s", len(other_touched), commit_message)
 
     if source_touched:
         _run_git(repo_path, "checkout", "--", "source/")
         _run_git(repo_path, "clean", "-fd", "--", "source/")
+        logger.warning("source/ was modified during processing and has been reverted: %s", source_touched)
         raise SourceModifiedError(source_touched)
 
     return other_touched
