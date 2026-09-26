@@ -17,9 +17,9 @@ must cite topological evidence it actually observed via a tool call this
 round, never a text quote — it structurally has no source text to quote.
 """
 
-import json
 from dataclasses import dataclass
 
+from app.agents.structured_output import extract_json_object
 from app.repositories.graph_repo import (
     DIRECTIONAL_NOT_HIERARCHICAL_TYPES,
     HIERARCHICAL_TYPES,
@@ -60,7 +60,7 @@ def _format_type_taxonomy() -> str:
     return "\n".join(lines)
 
 
-def build_prompt(concepts_written: list[dict]) -> str:
+def build_prompt(concepts_written: list[dict], critique_delta: str | None = None) -> str:
     concepts_lines = "\n".join(
         f"- concept_id={c['concept_id']!r}, title={c['title']!r}" for c in concepts_written
     )
@@ -122,44 +122,23 @@ def build_prompt(concepts_written: list[dict]) -> str:
         "JSON block must be the last thing in your response.",
     ]
 
-    return "\n\n".join(parts)
+    prompt = "\n\n".join(parts)
+
+    if critique_delta:
+        prompt += f"\n\n--- Additional guidance for this run ---\n{critique_delta}"
+
+    return prompt
 
 
 def parse_output(result_text: str) -> GraphAgentOutput:
     """Extracts the fenced/embedded JSON object from result_text, tolerant of
     prose wrapping (Claude Code is observed to sometimes wrap JSON in
-    explanatory text despite instruction not to): finds the first '{' and the
-    last '}' and attempts json.loads on that span, falling back to trimming
-    from the end (searching backwards for an earlier '}') when the naive
-    last-'}' span doesn't parse. Raises GraphAgentOutputParseError — never
-    returns a silently-empty result — if no valid JSON object with the
-    required key is found.
+    explanatory text despite instruction not to), via
+    `structured_output.extract_json_object`. Raises GraphAgentOutputParseError
+    — never returns a silently-empty result — if no valid JSON object with
+    the required key is found.
     """
-    start = result_text.find("{")
-    if start == -1:
-        raise GraphAgentOutputParseError(f"no JSON object found in response: {result_text!r}")
-
-    end = result_text.rfind("}")
-    data = None
-    while end > start:
-        candidate = result_text[start : end + 1]
-        try:
-            data = json.loads(candidate)
-            break
-        except json.JSONDecodeError:
-            end = result_text.rfind("}", start, end)
-
-    if data is None:
-        raise GraphAgentOutputParseError(f"no parseable JSON object found in response: {result_text!r}")
-
-    if not isinstance(data, dict):
-        raise GraphAgentOutputParseError(f"parsed JSON is not an object: {result_text!r}")
-
-    missing = [key for key in _REQUIRED_KEYS if key not in data]
-    if missing:
-        raise GraphAgentOutputParseError(
-            f"parsed JSON is missing required keys {missing}: {result_text!r}"
-        )
+    data = extract_json_object(result_text, _REQUIRED_KEYS, GraphAgentOutputParseError)
 
     return GraphAgentOutput(
         relationships_written=data["relationships_written"],

@@ -11,3 +11,8 @@ class OrchestratorState(TypedDict):
     round_number: int
     status: Literal["running", "succeeded", "failed", "needs_review"]
     error: str | None
+    validation_result: dict | None  # will hold a ValidationAgentOutput-shaped dict once Task 2 lands
+    text_agent_critique_delta: str | None
+    graph_agent_critique_delta: str | None
+    prior_validation_issues: list[dict] | None  # the raw `issues` list from the last *rejected* validation round, for the next round's no-progress comparison
+    retry_count: int

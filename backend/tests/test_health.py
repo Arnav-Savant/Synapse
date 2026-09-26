@@ -11,4 +11,3 @@ def test_health_returns_200_ok():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert "knowledge_repo_path" in body

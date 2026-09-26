@@ -20,25 +20,16 @@ tested, not hard minimums beyond what's noted.)
 
 ## One-time setup
 
-1. Create the knowledge content directory — a plain subdirectory of this
-   repo (see `docs/ARCHITECTURE.md` §1), committed to the same Git history
-   as the app. It defaults to `synapse-knowledge/` at the repo root; only
-   set `KNOWLEDGE_REPO_PATH` (below) if you want it somewhere else.
-   ```bash
-   mkdir -p synapse-knowledge/{source,knowledge,assets,.synapse/jobs,.synapse/logs}
-   ```
-2. Backend environment file:
+1. Backend environment file:
    ```bash
    cp .env.example backend/.env
    ```
-   Edit `backend/.env` and set `KNOWLEDGE_REPO_PATH` to the directory from
-   step 1 (skip this if you used the default `~/synapse-knowledge`).
-3. Backend dependencies:
+2. Backend dependencies:
    ```bash
    cd backend
    poetry install
    ```
-4. Frontend dependencies:
+3. Frontend dependencies:
    ```bash
    cd frontend
    npm install
@@ -72,18 +63,7 @@ Open **http://localhost:5173** in a browser. The Vite dev server proxies
 `/api/*` requests to the backend (configured in `frontend/vite.config.ts`),
 so no CORS setup is needed for local dev.
 
-You should see:
-```
-Synapse
-Phase 0 — scaffolding
-
-status            ok
-knowledge_repo_path   <your resolved KNOWLEDGE_REPO_PATH, e.g. /home/you/synapse-knowledge>
-knowledge_repo_exists true
-```
-
-If `knowledge_repo_exists` shows `false`, check `KNOWLEDGE_REPO_PATH` in
-`backend/.env` points at a real directory.
+You should see the health badge report `ok`.
 
 ### Quick sanity check without a browser
 
@@ -104,5 +84,4 @@ poetry run pytest
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `KNOWLEDGE_REPO_PATH` | Absolute path to the knowledge content directory (optional) | `synapse-knowledge/` inside this repo |
 | `FRONTEND_ORIGIN` | Allowed CORS origin for the backend (only matters if you bypass the Vite proxy) | `http://localhost:5173` |

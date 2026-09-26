@@ -233,7 +233,7 @@ async def test_graph_agent_add_relationship_and_neighborhood_round_trip(kuzu_con
         assert not neighborhood_result.is_error
         neighborhood = _result_dict(neighborhood_result)
 
-    direct = graph_repo.get_graph_neighborhood(kuzu_conn, "a", depth=1)
+    direct = graph_repo.get_graph_neighborhood(kuzu_conn, "a", depth=1, job_id="job-graph")
     assert added["source_id"] == "a"
     assert added["target_id"] == "b"
     assert added["status"] == "pending"

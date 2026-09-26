@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Spec §5.2 step 6: "Loop 2–5 up to a hard retry cap, regardless of the
+# no-progress check." The cap applies independently of no-progress
+# escalation — either condition terminates the loop.
+MAX_VALIDATION_RETRIES = 3
+
 
 @dataclass(frozen=True)
 class SourceSignals:
@@ -69,6 +74,34 @@ def should_run_graph_agent(text_output: "TextAgentOutput") -> bool:
     touched (created OR updated — an updated concept can still gain new
     relationships), Graph Agent gets a chance to reason about it."""
     return len(text_output.concepts_written) > 0
+
+
+def has_no_progress(this_round_issues: list[dict], prior_issues: list[dict] | None) -> bool:
+    """Spec §5.2 step 4: "Orchestrator compares this round's critique to the
+    prior round's. If the same issue (same category and target) was flagged
+    last round too, that's a no-progress signal — stop immediately and
+    escalate, rather than spend remaining retries on something the agent has
+    already shown it can't fix."
+
+    The comparison key is `(category, target_id)` only — per backend-lead's
+    ruling this phase, `severity`/`description` play no part. This is an
+    existential check, not a set-equality one: per the quoted line, a
+    *single* carried-over `(category, target_id)` pair is itself "a
+    no-progress signal," regardless of whether other issues were fixed or
+    new ones appeared alongside it in the same round — the spec's wording
+    is about one specific issue proving itself unfixable, not about the
+    round's issue count trending up or down as a whole.
+
+    `prior_issues=None` means there is no prior round (first validation
+    pass) — nothing to compare against, so this can never be "no progress."
+    """
+    if prior_issues is None:
+        return False
+
+    prior_keys = {(issue["category"], issue["target_id"]) for issue in prior_issues}
+    this_round_keys = {(issue["category"], issue["target_id"]) for issue in this_round_issues}
+
+    return bool(prior_keys & this_round_keys)
 
 
 async def commit_job(session: AsyncSession, kuzu_conn: kuzu.Connection, job_id: str) -> None:

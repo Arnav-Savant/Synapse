@@ -10,9 +10,9 @@ structured report; it never calls those tools itself — that dispatch is
 the Orchestrator's job (`invoke_agent`, spec §6.4).
 """
 
-import json
 from dataclasses import dataclass
 
+from app.agents.structured_output import extract_json_object
 from app.db.models import Source
 from app.orchestrator.tools import SourceSignals
 
@@ -111,38 +111,12 @@ def build_prompt(source: Source, signals: SourceSignals, critique_delta: str | N
 def parse_output(result_text: str) -> TextAgentOutput:
     """Extracts the fenced/embedded JSON object from result_text, tolerant of
     prose wrapping (Claude Code is observed to sometimes wrap JSON in
-    explanatory text despite instruction not to): finds the first '{' and the
-    last '}' and attempts json.loads on that span, falling back to trimming
-    from the end (searching backwards for an earlier '}') when the naive
-    last-'}' span doesn't parse. Raises TextAgentOutputParseError — never
-    returns a silently-empty result — if no valid JSON object with all three
-    required keys is found.
+    explanatory text despite instruction not to), via
+    `structured_output.extract_json_object`. Raises TextAgentOutputParseError
+    — never returns a silently-empty result — if no valid JSON object with
+    all three required keys is found.
     """
-    start = result_text.find("{")
-    if start == -1:
-        raise TextAgentOutputParseError(f"no JSON object found in response: {result_text!r}")
-
-    end = result_text.rfind("}")
-    data = None
-    while end > start:
-        candidate = result_text[start : end + 1]
-        try:
-            data = json.loads(candidate)
-            break
-        except json.JSONDecodeError:
-            end = result_text.rfind("}", start, end)
-
-    if data is None:
-        raise TextAgentOutputParseError(f"no parseable JSON object found in response: {result_text!r}")
-
-    if not isinstance(data, dict):
-        raise TextAgentOutputParseError(f"parsed JSON is not an object: {result_text!r}")
-
-    missing = [key for key in _REQUIRED_KEYS if key not in data]
-    if missing:
-        raise TextAgentOutputParseError(
-            f"parsed JSON is missing required keys {missing}: {result_text!r}"
-        )
+    data = extract_json_object(result_text, _REQUIRED_KEYS, TextAgentOutputParseError)
 
     return TextAgentOutput(
         segmentation=data["segmentation"],

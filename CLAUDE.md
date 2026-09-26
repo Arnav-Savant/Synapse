@@ -59,15 +59,15 @@ truth for what's actually implemented:
 
 ## Hard rules
 
-- The knowledge content directory is `synapse-knowledge/` at this repo's
-  root, addressed via `KNOWLEDGE_REPO_PATH` (see `.env.example`, defaults
-  to that path). This repo's code treats it as
-  external data, always accessed through the path-safety-checked repository
-  modules described in `docs/ARCHITECTURE.md` §6/§14.2 — never with ad hoc
-  file I/O scattered through routes or components.
-- No database. Application state is the filesystem plus small JSON/YAML
-  operational files under `synapse-knowledge/.synapse/` — see
-  `docs/ARCHITECTURE.md` §7 before proposing to add one.
+- **Superseded**: the multi-agent architecture migration moved all
+  application state off the filesystem. `synapse-knowledge/` no longer
+  exists and `KNOWLEDGE_REPO_PATH`/`ServerConfig.knowledge_repo_path` have
+  been removed entirely — there is no knowledge content directory to
+  configure. Sources/concepts/jobs live in Postgres (`backend/app/db/models.py`,
+  accessed only through `backend/app/repositories/`), and the concept graph
+  lives in the embedded Kùzu DB (`backend/app/db/kuzu_db.py`). `docs/ARCHITECTURE.md`
+  §1/§5-ish areas still describe the retired filesystem design in detail and
+  need a fuller rewrite — tracked as Phase 7 doc work, not yet done.
 - Follow `docs/ARCHITECTURE.md` §14 (Engineering Standards) for all backend
   and frontend code: modular, single-responsibility files, no god-files,
   repository/strategy/adapter patterns where the design already implies

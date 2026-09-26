@@ -79,6 +79,13 @@ def _initial_state(job: Job, source: Source) -> dict:
     }
 
 
+_PASS_VALIDATION_RESULT_TEXT = '```json\n{"verdict": "pass", "issues": []}\n```'
+
+
+def _reject_validation_result_text(issues: list[dict]) -> str:
+    return "```json\n" + json.dumps({"verdict": "reject", "issues": issues}) + "\n```"
+
+
 def _success_result_text(concept_a_id: str, concept_b_id: str) -> str:
     structured_output = {
         "segmentation": [
@@ -122,6 +129,11 @@ async def test_graph_success_path_commits_two_concepts_and_one_job_round(
                 result_text='```json\n{"relationships_written": []}\n```',
                 cost_usd=0.0,
             )
+        if invocation.agent_role == "validation_agent":
+            # This test predates the Validation Agent (Phase 6) and isn't
+            # exercising its behavior — a "pass" verdict keeps this test
+            # focused on what it actually asserts.
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
         async with self._session_factory() as session:
             concept_a = await concept_repo.create_concept(
                 session,
@@ -164,19 +176,21 @@ async def test_graph_success_path_commits_two_concepts_and_one_job_round(
         "Body text scoped only to Concept B's distinct use case.",
     }
 
-    # Two rounds now: Text Agent, then Graph Agent (Phase 5) — the latter a
-    # no-op turn here since this test isn't exercising Graph Agent behavior,
-    # but should_run_graph_agent correctly invokes it whenever concepts were
-    # written, so it genuinely runs.
+    # Three rounds now: Text Agent, Graph Agent (Phase 5, a no-op turn here
+    # since this test isn't exercising Graph Agent behavior, but
+    # should_run_graph_agent correctly invokes it whenever concepts were
+    # written), then Validation Agent (Phase 6, a "pass" verdict here since
+    # this test isn't exercising the retry loop).
     round_result = await db_session.execute(
         select(JobRound).where(JobRound.job_id == job.id).order_by(JobRound.round_number)
     )
     job_rounds = round_result.scalars().all()
-    assert len(job_rounds) == 2
+    assert len(job_rounds) == 3
     assert job_rounds[0].agent_type == "text_agent"
     assert job_rounds[0].structured_output_json is not None
     assert job_rounds[0].structured_output_json["concepts_written"][0]["action"] == "created"
     assert job_rounds[1].agent_type == "graph_agent"
+    assert job_rounds[2].agent_type == "validation_agent"
 
 
 @pytest.mark.asyncio
@@ -282,6 +296,9 @@ async def test_graph_agent_creates_committed_relationship_with_justification(
                 result_text="Report.\n\n```json\n" + json.dumps(structured_output) + "\n```",
                 cost_usd=0.02,
             )
+
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
 
         assert invocation.agent_role == "graph_agent"
         graph_repo.ensure_node(kuzu_conn, concept_ids["a"], "Backpropagation", "neural-networks")
@@ -392,6 +409,9 @@ async def test_graph_agent_cyclic_relationship_rejected_before_staging(
                 cost_usd=0.02,
             )
 
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+
         assert invocation.agent_role == "graph_agent"
         relationships_written: list[dict] = []
         try:
@@ -445,3 +465,529 @@ async def test_graph_agent_cyclic_relationship_rejected_before_staging(
             justification="closing the loop back to a",
             job_id=job.id,
         )
+
+
+# --- Task 6: critique-delta consume-and-clear wiring ---
+
+
+@pytest.mark.asyncio
+async def test_text_agent_critique_delta_is_passed_to_prompt_and_cleared_on_success(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    delta = "Last round missed the distinction between A and B — be more precise this time."
+    captured_prompts: dict[str, str] = {}
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "graph_agent":
+            return EngineResult(
+                is_error=False,
+                result_text='```json\n{"relationships_written": []}\n```',
+                cost_usd=0.0,
+            )
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        captured_prompts["text_agent"] = invocation.prompt
+        async with self._session_factory() as session:
+            concept_a = await concept_repo.create_concept(
+                session,
+                title="Concept A",
+                category="general",
+                body="Body text scoped only to Concept A's mechanics.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+            concept_b = await concept_repo.create_concept(
+                session,
+                title="Concept B",
+                category="general",
+                body="Body text scoped only to Concept B's distinct use case.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+        return EngineResult(
+            is_error=False,
+            result_text=_success_result_text(concept_a.id, concept_b.id),
+            cost_usd=0.02,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    initial_state = {**_initial_state(job, source), "text_agent_critique_delta": delta}
+    final_state = await compiled.ainvoke(initial_state)
+
+    assert final_state["status"] == "succeeded"
+    assert delta in captured_prompts["text_agent"]
+    assert final_state["text_agent_critique_delta"] is None
+
+
+@pytest.mark.asyncio
+async def test_graph_agent_critique_delta_is_passed_to_prompt_and_cleared_on_success(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    delta = "Last round proposed a bogus relationship type — double check the taxonomy."
+    captured_prompts: dict[str, str] = {}
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "graph_agent":
+            captured_prompts["graph_agent"] = invocation.prompt
+            return EngineResult(
+                is_error=False,
+                result_text='```json\n{"relationships_written": []}\n```',
+                cost_usd=0.0,
+            )
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        async with self._session_factory() as session:
+            concept_a = await concept_repo.create_concept(
+                session,
+                title="Concept A",
+                category="general",
+                body="Body text scoped only to Concept A's mechanics.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+            concept_b = await concept_repo.create_concept(
+                session,
+                title="Concept B",
+                category="general",
+                body="Body text scoped only to Concept B's distinct use case.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+        return EngineResult(
+            is_error=False,
+            result_text=_success_result_text(concept_a.id, concept_b.id),
+            cost_usd=0.02,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    initial_state = {**_initial_state(job, source), "graph_agent_critique_delta": delta}
+    final_state = await compiled.ainvoke(initial_state)
+
+    assert final_state["status"] == "succeeded"
+    assert delta in captured_prompts["graph_agent"]
+    assert final_state["graph_agent_critique_delta"] is None
+
+
+@pytest.mark.asyncio
+async def test_absent_critique_deltas_leave_prompts_and_state_unchanged(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    captured_prompts: dict[str, str] = {}
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "graph_agent":
+            captured_prompts["graph_agent"] = invocation.prompt
+            return EngineResult(
+                is_error=False,
+                result_text='```json\n{"relationships_written": []}\n```',
+                cost_usd=0.0,
+            )
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        captured_prompts["text_agent"] = invocation.prompt
+        async with self._session_factory() as session:
+            concept_a = await concept_repo.create_concept(
+                session,
+                title="Concept A",
+                category="general",
+                body="Body text scoped only to Concept A's mechanics.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+            concept_b = await concept_repo.create_concept(
+                session,
+                title="Concept B",
+                category="general",
+                body="Body text scoped only to Concept B's distinct use case.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+        return EngineResult(
+            is_error=False,
+            result_text=_success_result_text(concept_a.id, concept_b.id),
+            cost_usd=0.02,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert "Additional guidance for this run" not in captured_prompts["text_agent"]
+    assert "Additional guidance for this run" not in captured_prompts["graph_agent"]
+    assert final_state.get("text_agent_critique_delta") is None
+    assert final_state.get("graph_agent_critique_delta") is None
+
+
+# --- Task 7: Validation Agent + retry loop ---
+
+
+def _no_op_text_agent_result_text() -> str:
+    """concepts_written=[] keeps should_run_graph_agent False, so these
+    tests exercise the Text Agent <-> Validation Agent loop directly
+    without also needing to model Graph Agent behavior."""
+    structured_output = {
+        "segmentation": [],
+        "overlap_check": {"merged_pairs": [], "notes": "n/a"},
+        "concepts_written": [],
+    }
+    return "```json\n" + json.dumps(structured_output) + "\n```"
+
+
+@pytest.mark.asyncio
+async def test_validation_pass_routes_straight_to_commit(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        assert invocation.agent_role == "text_agent"
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert final_state["validation_result"]["verdict"] == "pass"
+    assert final_state.get("text_agent_critique_delta") is None
+    assert final_state.get("graph_agent_critique_delta") is None
+
+    round_result = await db_session.execute(
+        select(JobRound).where(JobRound.job_id == job.id).order_by(JobRound.round_number)
+    )
+    assert [r.agent_type for r in round_result.scalars().all()] == ["text_agent", "validation_agent"]
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_with_progress_retries_targeted_agent(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    text_agent_prompts: list[str] = []
+    validation_calls = {"count": 0}
+    first_round_issues = [
+        {
+            "category": "ungrounded_content",
+            "severity": "high",
+            "target_id": "concept-1",
+            "description": "Concept 1's body isn't grounded in its cited excerpt.",
+        }
+    ]
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(
+                    is_error=False,
+                    result_text=_reject_validation_result_text(first_round_issues),
+                    cost_usd=0.0,
+                )
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        assert invocation.agent_role == "text_agent"
+        text_agent_prompts.append(invocation.prompt)
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert len(text_agent_prompts) == 2
+    # The critique delta from round 1's rejection reached round 2's Text
+    # Agent prompt (populated by invoke_validation_agent, consumed+cleared
+    # by invoke_text_agent's own success path — Task 6, unchanged here).
+    assert "Validation Agent rejected the previous round" in text_agent_prompts[1]
+    assert "ungrounded_content" in text_agent_prompts[1]
+    assert "concept-1" in text_agent_prompts[1]
+    assert final_state.get("text_agent_critique_delta") is None
+    assert final_state["retry_count"] == 1
+    assert final_state["prior_validation_issues"] == first_round_issues
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_with_no_progress_escalates_instead_of_retrying(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    text_agent_calls = {"count": 0}
+    repeated_issue = {
+        "category": "ungrounded_content",
+        "severity": "high",
+        "target_id": "concept-1",
+        "description": "Concept 1's body isn't grounded in its cited excerpt.",
+    }
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            # Same (category, target_id) as the seeded prior round below —
+            # spec §5.2 step 4's no-progress signal.
+            return EngineResult(
+                is_error=False,
+                result_text=_reject_validation_result_text([repeated_issue]),
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        text_agent_calls["count"] += 1
+        async with self._session_factory() as session:
+            await concept_repo.create_concept(
+                session,
+                title="Orphan Concept",
+                category="general",
+                body="Written before this round's validation escalated.",
+                metadata={},
+                job_id=invocation.job_id,
+            )
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    initial_state = {
+        **_initial_state(job, source),
+        "prior_validation_issues": [repeated_issue],
+        "retry_count": 1,
+    }
+    final_state = await compiled.ainvoke(initial_state)
+
+    assert final_state["status"] == "needs_review"
+    assert text_agent_calls["count"] == 1  # not re-invoked — escalated instead
+    assert final_state.get("text_agent_critique_delta") is None
+    assert final_state.get("graph_agent_critique_delta") is None
+    assert final_state["retry_count"] == 1  # budget not spent on a no-progress round
+
+    # Spec §5.2 step 7: escalation rolls back all staged writes for this job.
+    result = await db_session.execute(select(Concept).where(Concept.job_id == job.id))
+    assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_validation_hits_retry_cap_escalates_despite_genuine_progress(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    text_agent_calls = {"count": 0}
+    validation_calls = {"count": 0}
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            # A distinct (category, target_id) every round — genuine
+            # progress each time, per Task 5's settled has_no_progress
+            # semantics — yet the hard retry cap (spec §5.2 step 6: "up to
+            # a hard retry cap, regardless of the no-progress check") still
+            # terminates the loop on its own.
+            issue = {
+                "category": "ungrounded_content",
+                "severity": "high",
+                "target_id": f"concept-{validation_calls['count']}",
+                "description": "Still not grounded this round either.",
+            }
+            return EngineResult(
+                is_error=False,
+                result_text=_reject_validation_result_text([issue]),
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        text_agent_calls["count"] += 1
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "needs_review"
+    # MAX_VALIDATION_RETRIES=3: an initial round plus 3 retries before the
+    # 4th validation call finds retry_count already at the cap and escalates.
+    assert text_agent_calls["count"] == 4
+    assert validation_calls["count"] == 4
+    assert final_state["retry_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_validation_malformed_verdict_routes_to_rollback_as_failed(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(
+                is_error=False,
+                result_text='```json\n{"verdict": "maybe", "issues": []}\n```',
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "failed"
+    assert "invalid verdict" in final_state["error"]
+
+
+@pytest.mark.asyncio
+async def test_validation_unknown_category_routes_to_rollback_as_failed(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            issue = {
+                "category": "not_a_real_category",
+                "severity": "high",
+                "target_id": "concept-1",
+                "description": "n/a",
+            }
+            return EngineResult(
+                is_error=False,
+                result_text=_reject_validation_result_text([issue]),
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "failed"
+    assert "unrecognized validation issue category" in final_state["error"]
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_with_empty_issues_routes_to_rollback_as_failed(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(
+                is_error=False,
+                result_text=_reject_validation_result_text([]),
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "failed"
+    assert "empty issues list" in final_state["error"]
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_spanning_both_agents_cascades_without_delta_leakage(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """A single reject round with one text_agent-category issue and one
+    graph_agent-category issue must populate both critique deltas, and each
+    specialist's *own* re-invocation prompt must show only its own delta —
+    not the other specialist's — confirming the two deltas don't clobber or
+    leak into each other across the should_run_graph_agent cascade."""
+    job, source = await _make_job_and_source(db_session)
+    text_agent_calls = {"count": 0}
+    graph_agent_calls = {"count": 0}
+    validation_calls = {"count": 0}
+    text_agent_prompts: list[str] = []
+    graph_agent_prompts: list[str] = []
+    first_round_issues = [
+        {
+            "category": "missed_duplicate",
+            "severity": "medium",
+            "target_id": "concept-1",
+            "description": "Concept 1 duplicates an existing concept.",
+        },
+        {
+            "category": "unsupported_justification",
+            "severity": "high",
+            "target_id": "edge-1",
+            "description": "Edge 1's justification doesn't establish the claim.",
+        },
+    ]
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(
+                    is_error=False,
+                    result_text=_reject_validation_result_text(first_round_issues),
+                    cost_usd=0.0,
+                )
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            graph_agent_calls["count"] += 1
+            graph_agent_prompts.append(invocation.prompt)
+            return EngineResult(
+                is_error=False,
+                result_text='```json\n{"relationships_written": []}\n```',
+                cost_usd=0.0,
+            )
+        assert invocation.agent_role == "text_agent"
+        text_agent_calls["count"] += 1
+        text_agent_prompts.append(invocation.prompt)
+        # Non-empty concepts_written every round so should_run_graph_agent
+        # cascades Graph Agent after each Text Agent re-invocation too.
+        structured_output = {
+            "segmentation": [],
+            "overlap_check": {"merged_pairs": [], "notes": "n/a"},
+            "concepts_written": [
+                {"concept_id": f"concept-{text_agent_calls['count']}", "title": "C", "action": "created"}
+            ],
+        }
+        return EngineResult(
+            is_error=False,
+            result_text="```json\n" + json.dumps(structured_output) + "\n```",
+            cost_usd=0.01,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert text_agent_calls["count"] == 2
+    assert graph_agent_calls["count"] == 2
+    assert validation_calls["count"] == 2
+
+    round_2_text_prompt = text_agent_prompts[1]
+    assert "missed_duplicate" in round_2_text_prompt
+    assert "concept-1" in round_2_text_prompt
+    assert "unsupported_justification" not in round_2_text_prompt
+    assert "edge-1" not in round_2_text_prompt
+
+    round_2_graph_prompt = graph_agent_prompts[1]
+    assert "unsupported_justification" in round_2_graph_prompt
+    assert "edge-1" in round_2_graph_prompt
+    assert "missed_duplicate" not in round_2_graph_prompt
+    assert "concept-1" not in round_2_graph_prompt
+
+    assert final_state.get("text_agent_critique_delta") is None
+    assert final_state.get("graph_agent_critique_delta") is None
+    assert final_state["retry_count"] == 1
+    assert final_state["prior_validation_issues"] == first_round_issues

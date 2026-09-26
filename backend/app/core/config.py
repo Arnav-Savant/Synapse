@@ -35,7 +35,6 @@ def _resolve(value: T | None, env_var: str, default: T, cast=str) -> T:
 class ServerConfig:
     def __init__(
         self,
-        knowledge_repo_path: Path | None = None,
         frontend_origin: str | None = None,
         database_host: str | None = None,
         database_port: int | None = None,
@@ -47,10 +46,6 @@ class ServerConfig:
         kuzu_db_path: Path | None = None,
         log_level: str | None = None,
     ) -> None:
-        self.knowledge_repo_path = _resolve(
-            knowledge_repo_path, "KNOWLEDGE_REPO_PATH", _REPO_ROOT / "synapse-knowledge", Path
-        )
-
         # Frontend dev server origin, allowed for CORS. Backend itself only
         # binds to 127.0.0.1 (see SETUP.md) — no other origins are permitted.
         self.frontend_origin = _resolve(frontend_origin, "FRONTEND_ORIGIN", "http://localhost:5173")

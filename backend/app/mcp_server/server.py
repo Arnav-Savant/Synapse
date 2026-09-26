@@ -20,8 +20,9 @@ import kuzu
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from app.core.config import get_server_config
 from app.core.postgres_connection import postgres_connection
-from app.db.kuzu_db import get_kuzu_connection
+from app.mcp_server.graph_backend import GraphBackend, LocalGraphBackend, RemoteGraphBackend
 from app.repositories import concept_repo, graph_repo, source_record_repo
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,19 @@ class SynapseMcpServer:
     def __init__(self, role: AgentRole, job_id: str, kuzu_conn: kuzu.Connection | None = None) -> None:
         self._role = role
         self._job_id = job_id
-        self._kuzu_conn = kuzu_conn or get_kuzu_connection()
+        # An explicit kuzu_conn means an in-process caller (today: only
+        # tests) already owns a Kùzu connection safely — delegate straight
+        # to it. No explicit kuzu_conn means this is the real `claude -p`
+        # subprocess (see `app/mcp_server/entrypoint.py`, which never passes
+        # one): Kùzu is single-process-exclusive, so this process must never
+        # open the database file itself, and instead calls back into the
+        # main backend process (the one process that legitimately holds it)
+        # over loopback HTTP.
+        if kuzu_conn is not None:
+            self._graph_backend: GraphBackend = LocalGraphBackend(kuzu_conn)
+        else:
+            config = get_server_config()
+            self._graph_backend = RemoteGraphBackend(f"http://{config.app_host}:{config.app_port}")
         # Wraps the FastAPI-Depends-shaped async-generator dependency as a
         # real async context manager for non-FastAPI callers.
         self._session_factory = contextlib.asynccontextmanager(postgres_connection.get_session)
@@ -128,7 +141,7 @@ class SynapseMcpServer:
         try:
             self._server.run(transport="stdio")
         finally:
-            self._kuzu_conn.close()
+            self._graph_backend.close()
             logger.info("MCP server stopped: role=%s job=%s", self._role.value, self._job_id)
 
 
@@ -205,9 +218,7 @@ def _build_update_concept_tool(server: "SynapseMcpServer") -> Callable:
 def _build_get_graph_neighborhood_tool(server: "SynapseMcpServer") -> Callable:
     def get_graph_neighborhood(concept_id: str, depth: int = 1) -> dict:
         try:
-            neighborhood = graph_repo.get_graph_neighborhood(
-                server._kuzu_conn, concept_id, depth, job_id=server._job_id
-            )
+            neighborhood = server._graph_backend.get_graph_neighborhood(concept_id, depth, job_id=server._job_id)
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)
         return {
@@ -222,7 +233,7 @@ def _build_get_graph_neighborhood_tool(server: "SynapseMcpServer") -> Callable:
 def _build_search_relationships_tool(server: "SynapseMcpServer") -> Callable:
     def search_relationships(concept_id: str) -> dict:
         try:
-            relationships = graph_repo.search_relationships(server._kuzu_conn, concept_id, job_id=server._job_id)
+            relationships = server._graph_backend.search_relationships(concept_id, job_id=server._job_id)
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)
         return {"relationships": [_relationship_to_dict(r) for r in relationships]}
@@ -241,7 +252,7 @@ def _build_get_concept_metadata_tool(server: "SynapseMcpServer") -> Callable:
                 metadata = await concept_repo.get_concept_metadata(session, concept_id)
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)
-        graph_repo.ensure_node(server._kuzu_conn, metadata.id, metadata.title, metadata.category)
+        server._graph_backend.ensure_node(metadata.id, metadata.title, metadata.category)
         return {"id": metadata.id, "title": metadata.title, "category": metadata.category}
     get_concept_metadata.__name__ = "get_concept_metadata"
     return get_concept_metadata
@@ -256,8 +267,8 @@ def _build_add_relationship_tool(server: "SynapseMcpServer") -> Callable:
         # empirically that a closure variable does not appear in the
         # generated tool schema.
         try:
-            record = graph_repo.add_relationship(
-                server._kuzu_conn, source_id=source_id, target_id=target_id, type=type,
+            record = server._graph_backend.add_relationship(
+                source_id=source_id, target_id=target_id, type=type,
                 justification=justification, note=note, confidence=confidence, job_id=server._job_id,
             )
         except _TRANSLATED_EXCEPTIONS as exc:
@@ -273,8 +284,8 @@ def _build_update_relationship_tool(server: "SynapseMcpServer") -> Callable:
         note: str | None = None, justification: str | None = None, confidence: float | None = None,
     ) -> dict:
         try:
-            record = graph_repo.update_relationship(
-                server._kuzu_conn, source_id=source_id, target_id=target_id, type=type, job_id=server._job_id,
+            record = server._graph_backend.update_relationship(
+                source_id=source_id, target_id=target_id, type=type, job_id=server._job_id,
                 note=note, justification=justification, confidence=confidence,
             )
         except _TRANSLATED_EXCEPTIONS as exc:
@@ -287,8 +298,8 @@ def _build_update_relationship_tool(server: "SynapseMcpServer") -> Callable:
 def _build_remove_relationship_tool(server: "SynapseMcpServer") -> Callable:
     def remove_relationship(source_id: str, target_id: str, type: str) -> dict:
         try:
-            graph_repo.remove_relationship(
-                server._kuzu_conn, source_id=source_id, target_id=target_id, type=type, job_id=server._job_id
+            server._graph_backend.remove_relationship(
+                source_id=source_id, target_id=target_id, type=type, job_id=server._job_id
             )
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)

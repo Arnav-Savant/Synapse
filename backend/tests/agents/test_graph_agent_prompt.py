@@ -58,6 +58,22 @@ def test_build_prompt_includes_generated_type_taxonomy():
         assert type_name in prompt
 
 
+def test_build_prompt_without_critique_delta_omits_delta_section():
+    prompt = build_prompt(_concepts_written(), critique_delta=None)
+
+    assert "Additional guidance for this run" not in prompt
+
+
+def test_build_prompt_with_critique_delta_appends_it_after_base_contract():
+    base_prompt = build_prompt(_concepts_written(), critique_delta=None)
+    delta = "Pay closer attention to the distinction between X and Y this time."
+
+    prompt = build_prompt(_concepts_written(), critique_delta=delta)
+
+    assert delta in prompt
+    assert prompt.startswith(base_prompt)
+
+
 def test_parse_output_on_clean_valid_json():
     payload = {
         "relationships_written": [

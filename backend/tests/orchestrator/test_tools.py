@@ -9,7 +9,14 @@ from app.agents.text_agent import TextAgentOutput
 from app.core.config import get_server_config
 from app.db.kuzu_db import get_kuzu_connection
 from app.db.models import Concept, Job, Source
-from app.orchestrator.tools import commit_job, get_source_signals, rollback_job, should_run_graph_agent
+from app.orchestrator.tools import (
+    MAX_VALIDATION_RETRIES,
+    commit_job,
+    get_source_signals,
+    has_no_progress,
+    rollback_job,
+    should_run_graph_agent,
+)
 
 
 @pytest.fixture
@@ -255,3 +262,55 @@ def test_should_run_graph_agent_true_when_concept_created():
 def test_should_run_graph_agent_true_when_concept_updated():
     output = _text_agent_output([{"concept_id": "c1", "title": "C1", "action": "updated"}])
     assert should_run_graph_agent(output) is True
+
+
+# --- has_no_progress ----------------------------------------------------------
+
+
+def _issue(category: str, target_id: str, *, severity: str = "high", description: str = "d") -> dict:
+    return {"category": category, "severity": severity, "target_id": target_id, "description": description}
+
+
+def test_has_no_progress_false_when_prior_issues_is_none():
+    """First validation round: nothing to compare against, so it can never
+    be 'no progress' regardless of how many issues this round has."""
+    assert MAX_VALIDATION_RETRIES == 3
+    assert has_no_progress([_issue("ungrounded_content", "c1")], None) is False
+
+
+def test_has_no_progress_true_for_identical_issue_sets():
+    prior = [_issue("ungrounded_content", "c1")]
+    this_round = [_issue("ungrounded_content", "c1")]
+    assert has_no_progress(this_round, prior) is True
+
+
+def test_has_no_progress_ignores_severity_and_description_differences():
+    """Settled ruling this phase: comparison key is category+target_id only
+    — a changed severity/description for the same (category, target_id)
+    pair still counts as the same issue persisting, i.e. no progress."""
+    prior = [_issue("ungrounded_content", "c1", severity="low", description="minor drift")]
+    this_round = [_issue("ungrounded_content", "c1", severity="high", description="major drift")]
+    assert has_no_progress(this_round, prior) is True
+
+
+def test_has_no_progress_false_for_strictly_improved_set_with_different_targets():
+    prior = [_issue("ungrounded_content", "c1"), _issue("missed_duplicate", "c2")]
+    this_round = [_issue("scope_overlap", "c3")]
+    assert has_no_progress(this_round, prior) is False
+
+
+def test_has_no_progress_false_when_all_prior_issues_resolved_and_none_remain():
+    prior = [_issue("ungrounded_content", "c1")]
+    this_round: list[dict] = []
+    assert has_no_progress(this_round, prior) is False
+
+
+def test_has_no_progress_true_when_one_persists_alongside_a_brand_new_issue():
+    """Spec §5.2 step 4's literal wording ties the no-progress signal to a
+    single carried-over issue ('the same issue ... was flagged last round
+    too'), not to the round's issue count or set as a whole — so a
+    persisting issue still triggers no-progress even if a new, different
+    issue also showed up in the same round."""
+    prior = [_issue("ungrounded_content", "c1")]
+    this_round = [_issue("ungrounded_content", "c1"), _issue("scope_overlap", "c2")]
+    assert has_no_progress(this_round, prior) is True

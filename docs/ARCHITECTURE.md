@@ -19,11 +19,13 @@ Git history as the application code — not in a separate repository.
     .synapse/         # app-managed operational state (see §7)
     CLAUDE.md          # instructions for the Claude Code processing engine
   ```
-- `KNOWLEDGE_REPO_PATH` (`.env`, optional) still exists as a config value —
-  it defaults to `synapse-knowledge/` inside this repo, computed relative to
-  the backend package (`backend/app/core/config.py`), so a fresh clone works
-  with no per-machine override. Set it only if you want the content
-  somewhere else entirely.
+- **Superseded by the multi-agent/Postgres+Kùzu migration**: `synapse-knowledge/`
+  is no longer where knowledge content lives. `Source`/`Concept`/`Job`
+  rows live in Postgres and the concept graph lives in the embedded Kùzu
+  DB (§3-ish areas of this doc still describe the pre-migration filesystem
+  design below and need a fuller rewrite — tracked as Phase 7 doc work).
+  `KNOWLEDGE_REPO_PATH`/`ServerConfig.knowledge_repo_path` has been removed
+  entirely; there is no longer a knowledge content directory to configure.
 
 **History:** this project originally split content into a second Git
 repository specifically to keep "processed a ChatGPT export" commits out of
