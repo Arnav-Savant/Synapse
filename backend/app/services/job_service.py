@@ -1,78 +1,81 @@
-"""Orchestrates `jobs/` + `claude_runner/` into "process this source file".
+"""Orchestrates job lifecycle (`repositories/job_repo.py`) around the
+LangGraph ingestion pipeline (`app/orchestrator/graph.py`).
 
-This is where Phase 2's real logic lives — `api/jobs.py` just calls
-`enqueue_processing` and returns; everything about running Claude Code,
-committing or reverting the result, and recording job status happens here.
+This module owns `Job` status transitions end to end — `queued` ->
+`running` -> a terminal status the compiled graph reports back
+(`succeeded`/`failed`/`needs_review`). The pipeline logic itself (assess
+signals, invoke the Text Agent, commit/rollback across Postgres+Kùzu) lives
+in `orchestrator/`, not here; this module's only job is to never leave a
+`Job` row stuck at `running`, even if the graph itself raises.
 """
 
 import logging
-from pathlib import Path
 
-from app.claude_runner import git_guard, prompts, runner
-from app.jobs import store
+from app.db.models import Job
 from app.jobs.queue import JobQueue
-from app.jobs.store import Job
-from app.services import graph_service
+from app.orchestrator.graph import build_graph
+from app.orchestrator.state import OrchestratorState
+from app.repositories import job_repo
 
 logger = logging.getLogger(__name__)
 
 
-async def enqueue_processing(knowledge_repo_path: Path, source_relative_path: str, queue: JobQueue) -> Job:
-    job = store.create_job(knowledge_repo_path, source_relative_path)
-    await queue.enqueue(lambda: _process(knowledge_repo_path, job.id))
+async def enqueue_processing(session_factory, kuzu_conn, source_id: str, queue: JobQueue) -> Job:
+    async with session_factory() as session:
+        job = await job_repo.create_job(session, source_id=source_id)
+    await queue.enqueue(lambda: _process(session_factory, kuzu_conn, job.id))
     return job
 
 
-async def _process(knowledge_repo_path: Path, job_id: str) -> None:
-    job = store.load_job(knowledge_repo_path, job_id)
-    if job is None:
-        logger.warning("job %s not found when worker picked it up", job_id)
-        return
+async def _process(session_factory, kuzu_conn, job_id: str) -> None:
+    async with session_factory() as session:
+        job = await job_repo.get_job(session, job_id)
+        if job is None:
+            logger.warning("job %s not found when worker picked it up", job_id)
+            return
 
-    job.status = "running"
-    store.save_job(knowledge_repo_path, job)
-    logger.info("job %s started: source=%s", job.id, job.source_relative_path)
+        job.status = "running"
+        await job_repo.save_job(session, job)
+        source_id = job.source_id
 
+    logger.info("job %s started: source=%s", job_id, source_id)
+
+    initial_state: OrchestratorState = {
+        "job_id": job_id,
+        "source_id": source_id,
+        "signals": None,
+        "text_agent_result": None,
+        "should_run_graph_agent": False,
+        "round_number": 0,
+        "status": "running",
+        "error": None,
+    }
+
+    final_status = "failed"
     try:
-        _run(knowledge_repo_path, job, await _invoke_claude(knowledge_repo_path, job))
-    except git_guard.DirtyWorkingTreeError as exc:
-        job.status = "failed"
-        job.error = f"knowledge repo has uncommitted changes before this run: {exc}"
-        logger.error("job %s failed: %s", job.id, job.error)
+        compiled = build_graph(session_factory, kuzu_conn)
+        final_state = await compiled.ainvoke(initial_state)
+        final_status = final_state["status"]
+
+        async with session_factory() as session:
+            job = await job_repo.get_job(session, job_id)
+            if job is None:
+                logger.warning("job %s disappeared before its result could be recorded", job_id)
+            else:
+                job.status = final_state["status"]
+                job.error = final_state.get("error")
+                await job_repo.save_job(session, job)
     except Exception as exc:  # noqa: BLE001 — job-failure boundary: record it, never raise out of here
-        job.status = "failed"
-        job.error = str(exc)
-        logger.exception("job %s failed unexpectedly", job.id)
+        logger.exception("job %s failed unexpectedly", job_id)
+        final_status = "failed"
+        async with session_factory() as session:
+            job = await job_repo.get_job(session, job_id)
+            if job is None:
+                logger.warning("job %s disappeared before its failure could be recorded", job_id)
+            else:
+                job.status = "failed"
+                job.error = str(exc)
+                await job_repo.save_job(session, job)
 
-    store.save_job(knowledge_repo_path, job)
-    if job.status == "succeeded":
-        logger.info("job %s succeeded: cost_usd=%s committed=%s", job.id, job.cost_usd, job.committed_files)
-
-
-async def _invoke_claude(knowledge_repo_path: Path, job: Job) -> runner.ClaudeRunResult | str:
-    """Returns the run result, or an error string if the invocation itself failed."""
-    git_guard.ensure_clean(knowledge_repo_path)
-    try:
-        prompt = prompts.ingestion_prompt(job.source_relative_path)
-        return await runner.run_claude(knowledge_repo_path, prompt)
-    except runner.ClaudeRunnerError as exc:
-        return str(exc)
-
-
-def _run(knowledge_repo_path: Path, job: Job, outcome: runner.ClaudeRunResult | str) -> None:
-    commit_message = f"knowledge: process source/{job.source_relative_path} [job {job.id[:8]}]"
-    committed = git_guard.finalize(knowledge_repo_path, commit_message)
-
-    if isinstance(outcome, str):
-        job.status = "failed"
-        job.error = outcome
-    elif outcome.is_error:
-        job.status = "failed"
-        job.error = outcome.result_text or "claude reported an error"
-    else:
-        job.status = "succeeded"
-        job.result_summary = outcome.result_text
-        job.committed_files = committed
-        job.cost_usd = outcome.total_cost_usd
-        if committed:
-            graph_service.invalidate(knowledge_repo_path)
+    if final_status == "succeeded":
+        logger.info("job %s succeeded", job_id)

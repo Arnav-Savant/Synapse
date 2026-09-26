@@ -2,7 +2,7 @@
 name = "synapse-backend"
 version = "0.1.0"
 description = "Synapse backend — FastAPI service, filesystem-backed knowledge engine"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -15,6 +15,7 @@ dependencies = [
     "alembic>=1.13",
     "kuzu>=0.6",
     "mcp>=1.9",
+    "langgraph>=1.2,<2.0",
 ]
 
 [tool.poetry]

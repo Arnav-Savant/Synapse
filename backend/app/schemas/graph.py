@@ -4,21 +4,20 @@ from pydantic import BaseModel
 class GraphNodeOut(BaseModel):
     id: str
     title: str
-    aliases: list[str]
-    domains: list[str]
-    status: str
+    category: str
 
 
 class GraphEdgeOut(BaseModel):
-    source: str
-    target: str
+    source_id: str
+    target_id: str
     type: str
-    inverse_type: str
-    note: str | None = None
-    implicit: bool
+    note: str
+    justification: str
+    confidence: float | None
+    status: str
+    job_id: str | None
 
 
 class GraphResponse(BaseModel):
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
-    warnings: list[str]

@@ -33,7 +33,7 @@ class JobRound(Base):
     agent_type: Mapped[str] = mapped_column(String(30))
     prompt_delta: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    critique_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    structured_output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -55,6 +55,7 @@ class Source(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     content: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     topic_hint: Mapped[str | None] = mapped_column(String(200), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

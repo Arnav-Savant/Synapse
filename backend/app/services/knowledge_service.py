@@ -1,43 +1,45 @@
-"""Orchestrates `repositories/knowledge_repo.py` for the knowledge API.
+"""Orchestrates `repositories/concept_repo.py`/`repositories/graph_repo.py`
+for the Knowledge API.
 
-Read path: list slugs, read+parse a concept. Write path (Phase 5):
-validate the incoming text via `knowledge/frontmatter.py`, refuse a
-slug/id mismatch, auto-refresh `updated`, write back, commit immediately
-(`claude_runner/git_guard.py` — same reasoning as source writes: an
-uncommitted manual edit would fail the next processing job's clean-tree
-check), and invalidate the graph cache.
+Read path: list committed concepts (Postgres), read a full concept row
+(Postgres, including body) plus its relationships (Kùzu, read-only).
+Write path: a direct human edit — `concept_repo.update_concept_content`
+(NOT the agent-facing `update_concept` tool: no job/agent semantics, no
+re-staging to `pending`, sets `status='committed'` directly) — then
+invalidate the derived graph cache.
 """
 
-from dataclasses import replace
-from datetime import date
-from pathlib import Path
+import kuzu
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.claude_runner import git_guard
-from app.knowledge import frontmatter
-from app.knowledge.frontmatter import FrontmatterError, ParsedConcept
-from app.repositories import knowledge_repo
+from app.db.models import Concept
+from app.repositories import concept_repo, graph_repo
+from app.repositories.concept_repo import ConceptMetadata
+from app.repositories.graph_repo import RelationshipRecord
 from app.services import graph_service
 
 
-def list_knowledge(knowledge_repo_path: Path) -> list[str]:
-    return knowledge_repo.list_knowledge_slugs(knowledge_repo_path)
+async def list_knowledge(session: AsyncSession) -> list[ConceptMetadata]:
+    return await concept_repo.list_committed_concepts(session)
 
 
-def read_knowledge(knowledge_repo_path: Path, slug: str) -> tuple[ParsedConcept, str]:
-    raw = knowledge_repo.read_knowledge(knowledge_repo_path, slug)
-    return frontmatter.parse(raw), raw
+async def read_knowledge(
+    session: AsyncSession, kuzu_conn: kuzu.Connection, concept_id: str
+) -> tuple[Concept, list[RelationshipRecord]]:
+    concept = await concept_repo.get_concept(session, concept_id)
+    relationships = graph_repo.search_relationships(kuzu_conn, concept_id)
+    return concept, relationships
 
 
-def update_knowledge(knowledge_repo_path: Path, slug: str, raw_content: str) -> str:
-    parsed = frontmatter.parse(raw_content)
-    if parsed.id != slug:
-        raise FrontmatterError(f"frontmatter id '{parsed.id}' does not match concept '{slug}'")
-
-    refreshed = replace(parsed, updated=date.today().isoformat())
-    serialized = frontmatter.serialize(refreshed)
-
-    knowledge_repo.write_knowledge(knowledge_repo_path, slug, serialized)
-    git_guard.commit_path(knowledge_repo_path, f"knowledge/{slug}.md", f"knowledge: manual edit of {slug}")
-    graph_service.invalidate(knowledge_repo_path)
-
-    return serialized
+async def update_knowledge(
+    session: AsyncSession,
+    kuzu_conn: kuzu.Connection,
+    *,
+    concept_id: str,
+    body: str,
+    metadata: dict,
+) -> tuple[Concept, list[RelationshipRecord]]:
+    concept = await concept_repo.update_concept_content(session, concept_id=concept_id, body=body, metadata=metadata)
+    graph_service.invalidate()
+    relationships = graph_repo.search_relationships(kuzu_conn, concept_id)
+    return concept, relationships

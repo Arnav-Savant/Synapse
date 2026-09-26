@@ -14,6 +14,7 @@ from app.repositories.graph_repo import (
     SymmetricRelationshipConflictError,
     add_relationship,
     ensure_node,
+    get_full_graph,
     get_graph_neighborhood,
     remove_relationship,
     search_relationships,
@@ -160,6 +161,58 @@ def test_search_relationships_both_directions(kuzu_conn):
     pairs = {(r.source_id, r.target_id) for r in relationships}
     assert pairs == {("a", "b"), ("b", "c")}
     assert len(relationships) == 2
+
+
+# --- job_id scoping: committed + own-job-pending, never another job's pending ---
+
+
+def _build_job_scoping_fixture(conn):
+    """Star around "a": a committed edge to "b", a pending edge to "c" under
+    job-a, and a pending edge to "d" under job-b (simulating a different,
+    possibly crashed/orphaned job)."""
+    _create_node(conn, "a", "A", "cat")
+    _create_node(conn, "b", "B", "cat")
+    _create_node(conn, "c", "C", "cat")
+    _create_node(conn, "d", "D", "cat")
+    _create_edge(conn, "a", "b", "related-to", status="committed", job_id="job-committed")
+    _create_edge(conn, "a", "c", "related-to", status="pending", job_id="job-a")
+    _create_edge(conn, "a", "d", "related-to", status="pending", job_id="job-b")
+
+
+def test_get_graph_neighborhood_job_id_sees_own_pending_and_committed(kuzu_conn):
+    _build_job_scoping_fixture(kuzu_conn)
+
+    neighborhood = get_graph_neighborhood(kuzu_conn, "a", depth=1, job_id="job-a")
+
+    edge_pairs = {(e.source_id, e.target_id) for e in neighborhood.edges}
+    assert edge_pairs == {("a", "b"), ("a", "c")}
+
+
+def test_get_graph_neighborhood_no_job_id_sees_only_committed(kuzu_conn):
+    _build_job_scoping_fixture(kuzu_conn)
+
+    neighborhood = get_graph_neighborhood(kuzu_conn, "a", depth=1, job_id=None)
+
+    edge_pairs = {(e.source_id, e.target_id) for e in neighborhood.edges}
+    assert edge_pairs == {("a", "b")}
+
+
+def test_search_relationships_job_id_sees_own_pending_and_committed(kuzu_conn):
+    _build_job_scoping_fixture(kuzu_conn)
+
+    relationships = search_relationships(kuzu_conn, "a", job_id="job-a")
+
+    pairs = {(r.source_id, r.target_id) for r in relationships}
+    assert pairs == {("a", "b"), ("a", "c")}
+
+
+def test_search_relationships_no_job_id_sees_only_committed(kuzu_conn):
+    _build_job_scoping_fixture(kuzu_conn)
+
+    relationships = search_relationships(kuzu_conn, "a", job_id=None)
+
+    pairs = {(r.source_id, r.target_id) for r in relationships}
+    assert pairs == {("a", "b")}
 
 
 # --- add_relationship: Layer 1 rejection cases ---------------------------
@@ -327,7 +380,7 @@ def test_add_relationship_succeeds_for_each_taxonomy_type(kuzu_conn, edge_type):
     assert record.status == "pending"
     assert record.job_id == "job-1"
 
-    stored = [r for r in search_relationships(kuzu_conn, source_id) if r.type == edge_type]
+    stored = [r for r in search_relationships(kuzu_conn, source_id, job_id="job-1") if r.type == edge_type]
     assert len(stored) == 1
     assert stored[0] == record
 
@@ -426,7 +479,7 @@ def test_update_relationship_happy_path(kuzu_conn):
     assert updated.justification == "new justification"
     assert updated.confidence == pytest.approx(0.9)
 
-    stored = [r for r in search_relationships(kuzu_conn, "a") if r.type == "related-to"][0]
+    stored = [r for r in search_relationships(kuzu_conn, "a", job_id="job-1") if r.type == "related-to"][0]
     assert stored.note == "new note"
     assert stored.justification == "new justification"
     assert stored.confidence == pytest.approx(0.9)
@@ -483,3 +536,38 @@ def test_remove_relationship_not_found_raises(kuzu_conn):
 
     with pytest.raises(RelationshipNotFoundError):
         remove_relationship(kuzu_conn, source_id="a", target_id="b", type="related-to", job_id="job-1")
+
+
+# --- get_full_graph -----------------------------------------------------
+
+
+def test_get_full_graph_includes_all_nodes_and_only_committed_edges(kuzu_conn):
+    _create_node(kuzu_conn, "a", "A", "cat")
+    _create_node(kuzu_conn, "b", "B", "cat")
+    _create_node(kuzu_conn, "c", "C", "cat")
+    _create_edge(kuzu_conn, "a", "b", "related-to", status="committed")
+    _create_edge(kuzu_conn, "b", "c", "related-to", status="pending")
+
+    graph = get_full_graph(kuzu_conn)
+
+    assert graph.center_id == ""
+    assert {n.id for n in graph.nodes} == {"a", "b", "c"}
+    assert {(e.source_id, e.target_id) for e in graph.edges} == {("a", "b")}
+    assert all(e.status == "committed" for e in graph.edges)
+
+
+def test_get_full_graph_no_depth_restriction(kuzu_conn):
+    chain_length = 8  # well past get_graph_neighborhood's 5-hop depth cap
+    node_ids = [f"n{i}" for i in range(chain_length + 1)]
+    for node_id in node_ids:
+        _create_node(kuzu_conn, node_id, node_id, "cat")
+    for i in range(chain_length):
+        _create_edge(kuzu_conn, node_ids[i], node_ids[i + 1], "related-to", status="committed")
+
+    graph = get_full_graph(kuzu_conn)
+
+    assert {n.id for n in graph.nodes} == set(node_ids)
+    assert {(e.source_id, e.target_id) for e in graph.edges} == {
+        (node_ids[i], node_ids[i + 1]) for i in range(chain_length)
+    }
+    assert len(graph.edges) == chain_length

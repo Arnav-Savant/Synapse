@@ -1,30 +1,13 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.postgres_connection import postgres_connection
-from app.db.models import AgentConfig, Base
+from app.db.models import AgentConfig
 from app.repositories.agent_config_repo import (
     AgentConfigNotFoundError,
     get_agent_config,
     list_agent_configs,
     update_agent_config,
 )
-
-
-@pytest.fixture
-async def db_session():
-    """Local duplicate of `tests/db/conftest.py`'s fixture — this test file
-    lives outside `tests/db/`, and per the assignment's own guidance it's
-    simpler to duplicate the fixture than to reach across directories."""
-    engine = postgres_connection.get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
 
 
 @pytest.mark.asyncio

@@ -5,10 +5,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.postgres_connection import postgres_connection
-from app.db.models import AgentConfig, Base
+from app.db.models import AgentConfig
 from app.engines.base import EngineInvocation
 from app.engines.claude_code_engine import (
     _ENTRYPOINT_PATH,
@@ -50,22 +49,6 @@ def _success_payload(**overrides):
     }
     payload.update(overrides)
     return payload
-
-
-@pytest.fixture
-async def db_session():
-    """Local duplicate of `tests/db/conftest.py`'s fixture, matching
-    `test_agent_config_repo.py`'s own local duplicate — this test file
-    lives outside `tests/db/`."""
-    engine = postgres_connection.get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
 
 
 @pytest.fixture

@@ -1,40 +1,9 @@
 import pytest
-from sqlalchemy import delete
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.postgres_connection import postgres_connection
-from app.db.models import AgentConfig, Base
+from app.db.models import AgentConfig
 from app.repositories.agent_config_repo import AgentConfigNotFoundError, get_agent_config
 from app.services.agent_config_service import AgentConfigValidationError, list_configs, update_config
-
-_ROLES_USED = ("chat", "text_agent", "naming")
-
-
-@pytest.fixture
-async def db_session():
-    """Adapted from `tests/test_agent_config_repo.py`'s fixture: ensures the
-    schema exists (idempotent `create_all`, harmless whether or not Alembic
-    already migrated it) but deliberately does NOT `Base.metadata.drop_all()`
-    at teardown — this file is required (Task 3.8's regression bundle) to
-    run in the same pytest session as `test_agent_config_api.py`, whose
-    `TestClient`-triggered `lifespan` relies on Alembic's migrations having
-    already run against the real dev Postgres DB; a `drop_all` here would
-    leave tables missing while Alembic still believes it's at head
-    (confirmed empirically), breaking every test afterward in the same
-    session. Row-scoped cleanup of just the roles this file uses is enough
-    isolation without that side effect — done both before and after each
-    test, so a prior run that errored out mid-test (leaving a row
-    uncommitted-cleanup) can't poison the next one either."""
-    engine = postgres_connection.get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(delete(AgentConfig).where(AgentConfig.agent_role.in_(_ROLES_USED)))
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    async with engine.begin() as conn:
-        await conn.execute(delete(AgentConfig).where(AgentConfig.agent_role.in_(_ROLES_USED)))
-    await engine.dispose()
 
 
 async def _seed(db_session: AsyncSession, **overrides) -> None:

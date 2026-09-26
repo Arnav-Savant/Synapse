@@ -16,7 +16,7 @@ async def test_job_round_roundtrip(db_session: AsyncSession):
         agent_type="text",
         prompt_delta=None,
         output_summary="created 1 concept",
-        critique_json=None,
+        structured_output_json=None,
         cost_usd=0.01,
     )
     db_session.add(round_)

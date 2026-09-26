@@ -1,141 +1,207 @@
-import subprocess
-from datetime import date
+"""Knowledge API tests against the Postgres/Kùzu-backed `knowledge_service`
+(Phase 4 Task 12 cutover). `tests/test_knowledge_repo.py` still exercises
+the retired filesystem repo directly and is left alone pending Task 18's
+full retirement of that code path.
 
-from fastapi.testclient import TestClient
+Both `Depends(postgres_connection.get_session)` and
+`Depends(app.api.knowledge.get_kuzu_conn)` are overridden per-test with the
+shared `db_session` fixture (`tests/conftest.py`, rolled back at teardown)
+and a `kuzu_conn` fixture matching `tests/test_graph_repo.py`'s pattern.
 
-from app.core.config import ServerConfig, get_server_config
-from app.main import app
-from app.services import graph_service
-
-CONCEPT_MD = """---
-id: prompt-injection
-title: Prompt Injection
-aliases: ["Prompt Injection Attack"]
-domains: [prompt-engineering, ai-security]
-status: developing
-created: 2026-09-22
-updated: 2026-09-22
-sources: [prompt-engineering/chat-001.md]
-relationships:
-  - type: subtopic-of
-    target: prompt-engineering
-    note: some note
----
-
-Body with a [[prompt-engineering]] link.
+Uses `httpx.AsyncClient(transport=ASGITransport(app))` rather than
+`fastapi.testclient.TestClient`: `TestClient` dispatches each request
+through an AnyIO blocking-portal thread with its own event loop, which
+fails outright (`asyncpg`'s `RuntimeError: ... attached to a different
+loop`, confirmed empirically) once a route dependency is overridden with
+`db_session` — a real `AsyncSession`/`asyncpg` connection already bound to
+this test's own (session-scoped, per `pyproject.toml`) event loop.
+`AsyncClient` + `ASGITransport` calls the ASGI app in-process on the
+caller's current event loop, so the overridden `db_session` is always used
+from the loop it was created on. This also means lifespan never runs here
+(no migrations, no job queue) — fine, since `db_session` is already
+migrated via `conftest.py`'s `_migrated_engine`.
 """
 
+import shutil
+from collections.abc import AsyncIterator
 
-def _client_for(tmp_path, git_repo_factory) -> TestClient:
-    git_repo_factory(tmp_path)
-    (tmp_path / "knowledge" / "prompt-injection.md").write_text(CONCEPT_MD, encoding="utf-8")
-    (tmp_path / "knowledge" / "prompt-engineering.md").write_text(
-        "---\nid: prompt-engineering\ntitle: Prompt Engineering\n---\nbody\n", encoding="utf-8"
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.knowledge import get_kuzu_conn
+from app.core.config import get_server_config
+from app.core.postgres_connection import postgres_connection
+from app.db.kuzu_db import get_kuzu_connection
+from app.db.models import Concept
+from app.main import app
+from app.repositories import graph_repo
+
+
+@pytest.fixture
+def kuzu_conn(tmp_path, monkeypatch):
+    """Same fixture shape as `tests/test_graph_repo.py`."""
+    monkeypatch.setattr(get_server_config(), "kuzu_db_path", tmp_path / "graph")
+    conn = get_kuzu_connection(tmp_path / "graph")
+    yield conn
+    get_kuzu_connection.cache_clear()
+    shutil.rmtree(tmp_path / "graph", ignore_errors=True)
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession, kuzu_conn) -> AsyncIterator[AsyncClient]:
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[postgres_connection.get_session] = _override_get_session
+    app.dependency_overrides[get_kuzu_conn] = lambda: kuzu_conn
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+async def _seed_concept(
+    db_session: AsyncSession,
+    kuzu_conn,
+    *,
+    concept_id: str,
+    title: str,
+    category: str = "prompt-engineering",
+    body: str = "Body text.",
+    metadata: dict | None = None,
+    status: str = "committed",
+) -> Concept:
+    concept = Concept(
+        id=concept_id,
+        title=title,
+        category=category,
+        body=body,
+        metadata_=metadata or {},
+        status=status,
     )
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=tmp_path, check=True)
+    db_session.add(concept)
+    await db_session.flush()
+    graph_repo.ensure_node(kuzu_conn, concept_id, title, category)
+    return concept
 
-    app.dependency_overrides[get_server_config] = lambda: ServerConfig(knowledge_repo_path=tmp_path)
-    return TestClient(app)
 
+@pytest.mark.asyncio
+async def test_list_knowledge_returns_only_committed_concepts(client: AsyncClient, db_session, kuzu_conn):
+    await _seed_concept(db_session, kuzu_conn, concept_id="prompt-injection", title="Prompt Injection")
+    await _seed_concept(
+        db_session, kuzu_conn, concept_id="few-shot-prompting", title="Few-Shot Prompting", status="pending"
+    )
 
-def test_list_and_get_knowledge(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
+    response = await client.get("/api/knowledge")
 
-    listing = client.get("/api/knowledge")
-    assert listing.status_code == 200
-    assert set(listing.json()["slugs"]) == {"prompt-injection", "prompt-engineering"}
-
-    detail = client.get("/api/knowledge/prompt-injection")
-    assert detail.status_code == 200
-    body = detail.json()
-    assert body["title"] == "Prompt Injection"
-    assert body["aliases"] == ["Prompt Injection Attack"]
-    assert body["domains"] == ["prompt-engineering", "ai-security"]
-    assert body["status"] == "developing"
-    assert body["relationships"] == [
-        {"type": "subtopic-of", "target": "prompt-engineering", "note": "some note"}
+    assert response.status_code == 200
+    assert response.json()["concepts"] == [
+        {"id": "prompt-injection", "title": "Prompt Injection", "category": "prompt-engineering"}
     ]
-    assert "Body with a [[prompt-engineering]] link." in body["body"]
-    assert body["raw_content"] == CONCEPT_MD
-
-    app.dependency_overrides.clear()
 
 
-def test_get_missing_knowledge_returns_404(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
+@pytest.mark.asyncio
+async def test_get_knowledge_returns_full_detail_with_relationships(client: AsyncClient, db_session, kuzu_conn):
+    await _seed_concept(
+        db_session,
+        kuzu_conn,
+        concept_id="prompt-injection",
+        title="Prompt Injection",
+        body="Body with detail.",
+        metadata={"aliases": ["Prompt Injection Attack"], "domains": ["ai-security"]},
+    )
+    await _seed_concept(db_session, kuzu_conn, concept_id="prompt-engineering", title="Prompt Engineering")
+    graph_repo.add_relationship(
+        kuzu_conn,
+        source_id="prompt-injection",
+        target_id="prompt-engineering",
+        type="subtopic-of",
+        justification="prompt injection is a subtopic of prompt engineering",
+        note="some note",
+        job_id="job-1",
+    )
+    # knowledge_service.read_knowledge has no job context (it's a plain,
+    # unauthenticated human-facing read), so it always calls
+    # graph_repo.search_relationships with job_id=None — i.e. committed-only
+    # (see graph_repo.get_graph_neighborhood/search_relationships job_id
+    # scoping). Flip the seeded edge to committed here, same status
+    # transition app/orchestrator/tools.py's commit_job performs for real,
+    # so this test reflects what a human actually sees after a job lands.
+    kuzu_conn.execute(
+        "MATCH (a:Concept)-[r:RELATES_TO]->(b:Concept) "
+        "WHERE r.job_id = $job_id AND r.status = 'pending' "
+        "SET r.status = 'committed'",
+        {"job_id": "job-1"},
+    )
 
-    response = client.get("/api/knowledge/does-not-exist")
-
-    assert response.status_code == 404
-
-    app.dependency_overrides.clear()
-
-
-def test_get_malformed_knowledge_returns_400(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
-    (tmp_path / "knowledge" / "broken.md").write_text("no frontmatter here", encoding="utf-8")
-
-    response = client.get("/api/knowledge/broken")
-
-    assert response.status_code == 400
-
-    app.dependency_overrides.clear()
-
-
-def test_update_knowledge_round_trips_and_commits(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
-    graph_service.invalidate(tmp_path)
-
-    new_content = CONCEPT_MD.replace("Body with a", "Updated body with a")
-    response = client.put("/api/knowledge/prompt-injection", json={"content": new_content})
+    response = await client.get("/api/knowledge/prompt-injection")
 
     assert response.status_code == 200
     body = response.json()
-    assert "Updated body with a" in body["body"]
-    # updated is auto-refreshed regardless of what the client sent
-    assert body["updated"] == date.today().isoformat()
+    assert body["id"] == "prompt-injection"
+    assert body["title"] == "Prompt Injection"
+    assert body["category"] == "prompt-engineering"
+    assert body["metadata"] == {"aliases": ["Prompt Injection Attack"], "domains": ["ai-security"]}
+    assert body["body"] == "Body with detail."
+    assert body["relationships"] == [
+        {
+            "source_id": "prompt-injection",
+            "target_id": "prompt-engineering",
+            "type": "subtopic-of",
+            "note": "some note",
+        }
+    ]
 
-    # Persisted to disk.
-    on_disk = (tmp_path / "knowledge" / "prompt-injection.md").read_text(encoding="utf-8")
-    assert "Updated body with a" in on_disk
 
-    # Committed — tree is clean, matching the source-write behavior from Phase 2.
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=tmp_path, capture_output=True, text=True, check=True
+@pytest.mark.asyncio
+async def test_get_missing_knowledge_returns_404(client: AsyncClient):
+    response = await client.get("/api/knowledge/does-not-exist")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_knowledge_commits_directly_and_invalidates_graph_cache(
+    client: AsyncClient, db_session, kuzu_conn, monkeypatch
+):
+    await _seed_concept(
+        db_session,
+        kuzu_conn,
+        concept_id="prompt-injection",
+        title="Prompt Injection",
+        body="Old body.",
+        metadata={"aliases": []},
+        status="pending",
     )
-    assert status.stdout.strip() == ""
 
-    app.dependency_overrides.clear()
+    from app.services import knowledge_service
 
+    invalidate_calls = []
+    monkeypatch.setattr(knowledge_service.graph_service, "invalidate", lambda: invalidate_calls.append(True))
 
-def test_update_knowledge_rejects_id_mismatch(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
-
-    response = client.put(
+    response = await client.put(
         "/api/knowledge/prompt-injection",
-        json={"content": "---\nid: some-other-id\ntitle: X\n---\nbody\n"},
+        json={"body": "New body.", "metadata": {"aliases": ["Injection"]}},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    body = response.json()
+    assert body["body"] == "New body."
+    assert body["metadata"] == {"aliases": ["Injection"]}
+    assert invalidate_calls == [True]
 
-    app.dependency_overrides.clear()
+    updated = await db_session.get(Concept, "prompt-injection")
+    assert updated.body == "New body."
+    assert updated.metadata_ == {"aliases": ["Injection"]}
+    assert updated.status == "committed"
 
 
-def test_update_knowledge_invalidates_graph_cache(tmp_path, git_repo_factory):
-    client = _client_for(tmp_path, git_repo_factory)
-    graph_service.invalidate(tmp_path)
-
-    graph_before = graph_service.get_graph(tmp_path)
-    assert len(graph_before.edges) == 1  # the subtopic-of relationship
-
-    new_content = (
-        CONCEPT_MD.replace("  - type: subtopic-of\n    target: prompt-engineering\n    note: some note\n", "")
-        .replace("Body with a [[prompt-engineering]] link.", "Body with no links now.")
+@pytest.mark.asyncio
+async def test_update_missing_knowledge_returns_404(client: AsyncClient):
+    response = await client.put(
+        "/api/knowledge/does-not-exist",
+        json={"body": "New body.", "metadata": {}},
     )
-    client.put("/api/knowledge/prompt-injection", json={"content": new_content})
 
-    graph_after = graph_service.get_graph(tmp_path)
-    assert len(graph_after.edges) == 0
-
-    app.dependency_overrides.clear()
+    assert response.status_code == 404

@@ -1,32 +1,29 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
-class SourceFileOut(BaseModel):
-    category: str
-    filename: str
-    relative_path: str
-    size_bytes: int
+class SourceOut(BaseModel):
+    id: str
+    content: str
+    category: str | None
+    topic_hint: str | None
+    uploaded_at: datetime
 
 
-class SourceFileListResponse(BaseModel):
-    sources: list[SourceFileOut]
+class SourceListResponse(BaseModel):
+    sources: list[SourceOut]
 
 
 class CreateSourceRequest(BaseModel):
     content: str = Field(min_length=1)
-    # All optional: leave category/filename unset to have Claude Code file
-    # this automatically (docs/PLAN.md ingestion flow); topic_hint is an
-    # optional nudge, used whether or not category/filename are given.
+    # Optional: leave category unset to have the naming agent file this
+    # automatically; topic_hint is an optional nudge, used whether or not
+    # category is given. There's no filename concept under the DB model.
     category: str | None = None
-    filename: str | None = None
     topic_hint: str | None = None
 
 
-class SourceContentResponse(BaseModel):
-    relative_path: str
-    content: str
-
-
 class CreateSourceResponse(BaseModel):
-    source: SourceFileOut
+    source: SourceOut
     job_id: str

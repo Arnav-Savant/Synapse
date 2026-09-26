@@ -1,20 +1,19 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
 class ProcessSourceRequest(BaseModel):
-    source_relative_path: str
+    source_id: str
 
 
 class JobOut(BaseModel):
     id: str
-    source_relative_path: str
+    source_id: str
     status: str
-    created_at: str
-    updated_at: str
-    result_summary: str | None = None
     error: str | None = None
-    committed_files: list[str] = []
-    cost_usd: float | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class JobListResponse(BaseModel):

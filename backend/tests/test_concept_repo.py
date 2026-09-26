@@ -1,33 +1,18 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.postgres_connection import postgres_connection
-from app.db.models import Base, Concept, Job
+from app.db.models import Concept, Job
 from app.repositories.concept_repo import (
     ConceptMetadata,
     ConceptNotFoundError,
     create_concept,
     get_concept,
     get_concept_metadata,
+    list_committed_concepts,
     search_concepts,
     update_concept,
+    update_concept_content,
 )
-
-
-@pytest.fixture
-async def db_session():
-    """Local duplicate of `tests/db/conftest.py`'s fixture — this test file
-    lives outside `tests/db/`, and per the assignment's own guidance it's
-    simpler to duplicate the fixture than to reach across directories."""
-    engine = postgres_connection.get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
 
 
 async def _make_job(session: AsyncSession, job_id: str) -> Job:
@@ -231,3 +216,80 @@ async def test_update_concept_restages_committed_concept_to_pending(db_session: 
 async def test_update_concept_not_found_raises(db_session: AsyncSession):
     with pytest.raises(ConceptNotFoundError):
         await update_concept(db_session, concept_id="does-not-exist", job_id="job-a", body="x")
+
+
+@pytest.mark.asyncio
+async def test_list_committed_concepts_excludes_pending(db_session: AsyncSession):
+    await _make_job(db_session, "job-a")
+    db_session.add(
+        Concept(title="Backpropagation", category="neural-networks", body="...", metadata_={}, status="committed")
+    )
+    db_session.add(
+        Concept(title="Attention Mechanism", category="transformers", body="...", metadata_={}, status="committed")
+    )
+    db_session.add(
+        Concept(
+            title="Jailbreaking",
+            category="llm-security",
+            body="...",
+            metadata_={},
+            status="pending",
+            job_id="job-a",
+        )
+    )
+    await db_session.flush()
+
+    results = await list_committed_concepts(db_session)
+
+    assert [r.title for r in results] == ["Attention Mechanism", "Backpropagation"]
+    assert all(isinstance(r, ConceptMetadata) for r in results)
+
+
+@pytest.mark.asyncio
+async def test_list_committed_concepts_empty_when_none_committed(db_session: AsyncSession):
+    await _make_job(db_session, "job-a")
+    db_session.add(
+        Concept(
+            title="Jailbreaking",
+            category="llm-security",
+            body="...",
+            metadata_={},
+            status="pending",
+            job_id="job-a",
+        )
+    )
+    await db_session.flush()
+
+    results = await list_committed_concepts(db_session)
+
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_update_concept_content_sets_committed_and_leaves_job_id_untouched(db_session: AsyncSession):
+    await _make_job(db_session, "job-a")
+    concept = Concept(
+        title="Overfitting",
+        category="machine-learning",
+        body="Original body.",
+        metadata_={"aliases": []},
+        status="pending",
+        job_id="job-a",
+    )
+    db_session.add(concept)
+    await db_session.flush()
+
+    updated = await update_concept_content(
+        db_session, concept_id=concept.id, body="Edited body.", metadata={"aliases": ["overfit"]}
+    )
+
+    assert updated.status == "committed"
+    assert updated.body == "Edited body."
+    assert updated.metadata_ == {"aliases": ["overfit"]}
+    assert updated.job_id == "job-a"
+
+
+@pytest.mark.asyncio
+async def test_update_concept_content_not_found_raises(db_session: AsyncSession):
+    with pytest.raises(ConceptNotFoundError):
+        await update_concept_content(db_session, concept_id="does-not-exist", body="x", metadata={})

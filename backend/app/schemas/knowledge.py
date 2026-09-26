@@ -1,29 +1,32 @@
 from pydantic import BaseModel
 
 
+class KnowledgeSummary(BaseModel):
+    id: str
+    title: str
+    category: str
+
+
 class KnowledgeListResponse(BaseModel):
-    slugs: list[str]
+    concepts: list[KnowledgeSummary]
 
 
 class RelationshipOut(BaseModel):
+    source_id: str
+    target_id: str
     type: str
-    target: str
     note: str | None = None
 
 
 class KnowledgeDetailResponse(BaseModel):
-    slug: str
+    id: str
     title: str
-    aliases: list[str]
-    domains: list[str]
-    status: str
-    created: str | None
-    updated: str | None
-    sources: list[str]
-    relationships: list[RelationshipOut]
+    category: str
+    metadata: dict
     body: str
-    raw_content: str
+    relationships: list[RelationshipOut]
 
 
 class UpdateKnowledgeRequest(BaseModel):
-    content: str
+    body: str
+    metadata: dict

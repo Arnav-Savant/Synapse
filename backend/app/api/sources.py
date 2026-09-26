@@ -1,56 +1,74 @@
-"""Source file routes. Thin: validate via schemas, call the service."""
+"""Source routes. Thin: validate via schemas, call the service."""
 
-from fastapi import APIRouter, Depends, UploadFile
+import contextlib
 
-from app.core.config import ServerConfig, get_server_config
+import kuzu
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.postgres_connection import postgres_connection
+from app.db.kuzu_db import get_kuzu_connection
+from app.db.models import Source
 from app.jobs.queue import JobQueue, get_job_queue
 from app.schemas.sources import (
     CreateSourceRequest,
     CreateSourceResponse,
-    SourceContentResponse,
-    SourceFileListResponse,
-    SourceFileOut,
+    SourceListResponse,
+    SourceOut,
 )
 from app.services import source_service
 
 router = APIRouter()
 
 
-@router.get("/sources", response_model=SourceFileListResponse)
-def list_sources(settings: ServerConfig = Depends(get_server_config)) -> SourceFileListResponse:
-    sources = source_service.list_sources(settings.knowledge_repo_path)
-    return SourceFileListResponse(sources=[SourceFileOut(**vars(s)) for s in sources])
+def get_kuzu_conn() -> kuzu.Connection:
+    return get_kuzu_connection()
+
+
+@router.get("/sources", response_model=SourceListResponse)
+async def list_sources(session: AsyncSession = Depends(postgres_connection.get_session)) -> SourceListResponse:
+    sources = await source_service.list_sources(session)
+    return SourceListResponse(sources=[_to_source_out(s) for s in sources])
 
 
 @router.post("/sources", response_model=CreateSourceResponse, status_code=201)
 async def create_source(
     body: CreateSourceRequest,
-    settings: ServerConfig = Depends(get_server_config),
+    session: AsyncSession = Depends(postgres_connection.get_session),
+    kuzu_conn: kuzu.Connection = Depends(get_kuzu_conn),
     queue: JobQueue = Depends(get_job_queue),
 ) -> CreateSourceResponse:
+    # The queued processing job (and the naming agent's ClaudeCodeEngine
+    # call, when category isn't given) each need to open their own sessions
+    # over a lifetime independent of this request, so a factory is handed
+    # down alongside the per-request `session` — same idiom `api/jobs.py`'s
+    # `process_source` and `api/chat.py`'s `chat` route use.
+    session_factory = contextlib.asynccontextmanager(postgres_connection.get_session)
     source, job = await source_service.create_text_source(
-        settings.knowledge_repo_path,
+        session,
+        session_factory,
+        kuzu_conn,
         body.content,
         queue,
         category=body.category,
-        filename=body.filename,
         topic_hint=body.topic_hint,
     )
-    return CreateSourceResponse(source=SourceFileOut(**vars(source)), job_id=job.id)
+    return CreateSourceResponse(source=_to_source_out(source), job_id=job.id)
 
 
-@router.post("/sources/upload", response_model=SourceFileOut, status_code=201)
-async def upload_source(
-    file: UploadFile, settings: ServerConfig = Depends(get_server_config)
-) -> SourceFileOut:
-    data = await file.read()
-    source = source_service.upload_binary_source(settings.knowledge_repo_path, file.filename, data)
-    return SourceFileOut(**vars(source))
+@router.get("/sources/{source_id}", response_model=SourceOut)
+async def get_source(
+    source_id: str, session: AsyncSession = Depends(postgres_connection.get_session)
+) -> SourceOut:
+    source = await source_service.read_source(session, source_id)
+    return _to_source_out(source)
 
 
-@router.get("/sources/{relative_path:path}", response_model=SourceContentResponse)
-def get_source_content(
-    relative_path: str, settings: ServerConfig = Depends(get_server_config)
-) -> SourceContentResponse:
-    content = source_service.read_source(settings.knowledge_repo_path, relative_path)
-    return SourceContentResponse(relative_path=relative_path, content=content)
+def _to_source_out(source: Source) -> SourceOut:
+    return SourceOut(
+        id=source.id,
+        content=source.content,
+        category=source.category,
+        topic_hint=source.topic_hint,
+        uploaded_at=source.uploaded_at,
+    )

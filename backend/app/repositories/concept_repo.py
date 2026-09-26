@@ -136,3 +136,37 @@ async def update_concept(
     await session.commit()
     logger.info("concept %s re-staged as pending for job %s", concept_id, job_id)
     return concept
+
+
+async def list_committed_concepts(session: AsyncSession) -> list[ConceptMetadata]:
+    """All status='committed' concepts, id/title/category only — for the
+    Knowledge tab's list view / topic tree. Same ConceptMetadata DTO
+    get_concept_metadata already uses. Ordered by title for a stable,
+    human-friendly listing (no other ordering is guaranteed)."""
+    result = await session.execute(
+        select(Concept.id, Concept.title, Concept.category)
+        .where(Concept.status == "committed")
+        .order_by(Concept.title)
+    )
+    return [ConceptMetadata(id=row.id, title=row.title, category=row.category) for row in result.all()]
+
+
+async def update_concept_content(session: AsyncSession, *, concept_id: str, body: str, metadata: dict) -> Concept:
+    """Direct human edit (Knowledge editor 'save') — NOT the agent-facing
+    update_concept tool. Sets status='committed' directly and does NOT
+    touch job_id at all (leaves whatever was there — a manual edit isn't
+    part of any job). Raises ConceptNotFoundError if missing. Never exposed
+    via MCP (matches spec §6.1's 'no agent tool may [do X]' framing applied
+    by analogy — this is an app-level operation, like write_source)."""
+    result = await session.execute(select(Concept).where(Concept.id == concept_id))
+    concept = result.scalars().first()
+    if concept is None:
+        raise ConceptNotFoundError(concept_id)
+
+    concept.body = body
+    concept.metadata_ = metadata
+    concept.status = "committed"
+
+    await session.commit()
+    logger.info("concept %s content updated via direct edit, status=committed", concept_id)
+    return concept

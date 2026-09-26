@@ -6,30 +6,37 @@ import kuzu
 import pytest
 from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.config import get_server_config
-from app.core.postgres_connection import postgres_connection
 from app.db.kuzu_db import get_kuzu_connection
-from app.db.models import Base, Concept, Job
+from app.db.models import Concept, Job
 from app.mcp_server.server import AgentRole, SynapseMcpServer, TOOL_REGISTRY
 from app.repositories import concept_repo, graph_repo
 
 
 @pytest.fixture
-async def db_session():
-    """Local duplicate of `tests/db/conftest.py`'s fixture, matching the
-    convention already established in `tests/test_concept_repo.py`/
-    `tests/test_source_record_repo.py`."""
-    engine = postgres_connection.get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+async def db_session(_migrated_engine: AsyncEngine):
+    """Deliberately shadows `tests/conftest.py`'s shared, savepoint/rollback
+    `db_session` for this file only: `SynapseMcpServer` opens its own
+    independent session per tool call via `postgres_connection.get_session`
+    (a different physical connection from whatever this fixture hands the
+    test), so a concept/job this test writes must be genuinely committed to
+    be visible to it. The shared fixture's session sits on a SAVEPOINT
+    inside a connection-held transaction that's always rolled back at
+    teardown — an inner `session.commit()` only releases that savepoint,
+    it's never durable to another connection — confirmed empirically: the
+    cross-session round-trip tests below fail with not-found errors under
+    the shared fixture. This still reuses `_migrated_engine`'s once-per-
+    session schema instead of this file's own `create_all`/`drop_all`
+    against it, and truncates the two tables it touches afterward so no
+    test leaks data into the next."""
+    session_factory = async_sessionmaker(bind=_migrated_engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    async with _migrated_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE concepts, jobs RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
@@ -255,6 +262,71 @@ async def test_validation_agent_get_concept_matches_direct_repo_call(db_session,
     assert fetched["id"] == direct.id == concept.id
     assert fetched["title"] == direct.title
     assert fetched["body"] == direct.body
+
+
+# --- Chat role — committed-only neighborhood filtering ----------------------
+
+
+def _create_kuzu_edge(
+    conn: kuzu.Connection, source_id: str, target_id: str, rel_type: str, *, status: str, job_id: str,
+    note: str = "", justification: str = "j", confidence: float = 0.9,
+) -> None:
+    """Same shape as `test_graph_repo.py`'s `_create_edge` helper — bypasses
+    `graph_repo.add_relationship` so a `pending` edge can be seeded under an
+    arbitrary job_id that isn't the calling session's own."""
+    conn.execute(
+        "MATCH (a:Concept {id: $source}), (b:Concept {id: $target}) "
+        "CREATE (a)-[:RELATES_TO {type: $type, note: $note, justification: $justification, "
+        "confidence: $confidence, status: $status, job_id: $job_id, "
+        "created_at: timestamp('2026-01-01')}]->(b)",
+        {
+            "source": source_id,
+            "target": target_id,
+            "type": rel_type,
+            "note": note,
+            "justification": justification,
+            "confidence": confidence,
+            "status": status,
+            "job_id": job_id,
+        },
+    )
+
+
+async def test_chat_get_graph_neighborhood_excludes_pending_edges(kuzu_conn):
+    _create_kuzu_node(kuzu_conn, "a", "A", "cat")
+    _create_kuzu_node(kuzu_conn, "b", "B", "cat")
+    _create_kuzu_node(kuzu_conn, "c", "C", "cat")
+    _create_kuzu_edge(kuzu_conn, "a", "b", "related-to", status="committed", job_id="job-committed")
+    _create_kuzu_edge(kuzu_conn, "a", "c", "related-to", status="pending", job_id="job-other")
+
+    async with _client_session(AgentRole.CHAT, "job-chat", kuzu_conn) as session:
+        result = await session.call_tool("get_graph_neighborhood", {"concept_id": "a", "depth": 1})
+
+    assert not result.is_error
+    neighborhood = _result_dict(result)
+    edge_pairs = {(edge["source_id"], edge["target_id"]) for edge in neighborhood["edges"]}
+    assert {edge["status"] for edge in neighborhood["edges"]} == {"committed"}
+    assert ("a", "b") in edge_pairs
+    assert ("a", "c") not in edge_pairs
+
+
+async def test_graph_agent_get_graph_neighborhood_still_returns_pending_edges(kuzu_conn):
+    """Regression check: the Chat-only filter must not change the shared
+    graph_repo.get_graph_neighborhood code path other roles rely on."""
+    _create_kuzu_node(kuzu_conn, "a", "A", "cat")
+    _create_kuzu_node(kuzu_conn, "b", "B", "cat")
+    _create_kuzu_node(kuzu_conn, "c", "C", "cat")
+    _create_kuzu_edge(kuzu_conn, "a", "b", "related-to", status="committed", job_id="job-committed")
+    _create_kuzu_edge(kuzu_conn, "a", "c", "related-to", status="pending", job_id="job-other")
+
+    async with _client_session(AgentRole.GRAPH_AGENT, "job-other", kuzu_conn) as session:
+        result = await session.call_tool("get_graph_neighborhood", {"concept_id": "a", "depth": 1})
+
+    assert not result.is_error
+    neighborhood = _result_dict(result)
+    edge_pairs = {(edge["source_id"], edge["target_id"]) for edge in neighborhood["edges"]}
+    assert ("a", "b") in edge_pairs
+    assert ("a", "c") in edge_pairs
 
 
 # --- get_concept_metadata composition ---------------------------------------

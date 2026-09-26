@@ -1,59 +1,58 @@
+import shutil
+
+import pytest
+
+from app.core.config import get_server_config
+from app.db.kuzu_db import get_kuzu_connection
 from app.services import graph_service
 
 
-def _write_concept(knowledge_dir, slug: str, title: str, relationships: str = "") -> None:
-    (knowledge_dir / f"{slug}.md").write_text(
-        f"""---
-id: {slug}
-title: {title}
-relationships:
-{relationships}
----
-# {title}
-""",
-        encoding="utf-8",
+@pytest.fixture
+def kuzu_conn(tmp_path, monkeypatch):
+    """Same fixture shape as `tests/test_graph_repo.py`."""
+    monkeypatch.setattr(get_server_config(), "kuzu_db_path", tmp_path / "graph")
+    conn = get_kuzu_connection(tmp_path / "graph")
+    yield conn
+    get_kuzu_connection.cache_clear()
+    shutil.rmtree(tmp_path / "graph", ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _reset_graph_cache():
+    """The service cache is a single module-level entry now (one Kùzu
+    database for the whole app), so it must be reset around every test —
+    unlike the old per-repo-path dict, distinct tmp_paths no longer give
+    tests cache isolation for free."""
+    graph_service.invalidate()
+    yield
+    graph_service.invalidate()
+
+
+def _create_node(conn, concept_id, title, category):
+    conn.execute(
+        "CREATE (:Concept {id: $id, title: $title, category: $category})",
+        {"id": concept_id, "title": title, "category": category},
     )
 
 
-def test_get_graph_reflects_new_file_without_restart(tmp_path):
-    knowledge_dir = tmp_path / "knowledge"
-    knowledge_dir.mkdir()
-    _write_concept(knowledge_dir, "prompt-engineering", "Prompt Engineering")
+def test_get_graph_reflects_kuzu_state(kuzu_conn):
+    _create_node(kuzu_conn, "prompt-engineering", "Prompt Engineering", "cat")
 
-    graph = graph_service.get_graph(tmp_path)
+    graph = graph_service.get_graph(kuzu_conn)
+
     assert {n.id for n in graph.nodes} == {"prompt-engineering"}
 
-    graph_service.invalidate(tmp_path)
-    _write_concept(knowledge_dir, "few-shot-prompting", "Few-Shot Prompting")
 
-    graph_again = graph_service.get_graph(tmp_path)
-    assert {n.id for n in graph_again.nodes} == {"prompt-engineering", "few-shot-prompting"}
+def test_get_graph_caches_until_invalidated(kuzu_conn):
+    _create_node(kuzu_conn, "prompt-engineering", "Prompt Engineering", "cat")
 
-
-def test_get_graph_caches_until_invalidated(tmp_path):
-    knowledge_dir = tmp_path / "knowledge"
-    knowledge_dir.mkdir()
-    _write_concept(knowledge_dir, "prompt-engineering", "Prompt Engineering")
-
-    graph_service.get_graph(tmp_path)
-    _write_concept(knowledge_dir, "few-shot-prompting", "Few-Shot Prompting")
+    graph_service.get_graph(kuzu_conn)
+    _create_node(kuzu_conn, "few-shot-prompting", "Few-Shot Prompting", "cat")
 
     # Not invalidated yet — should still reflect the cached (stale) state.
-    stale_graph = graph_service.get_graph(tmp_path)
+    stale_graph = graph_service.get_graph(kuzu_conn)
     assert {n.id for n in stale_graph.nodes} == {"prompt-engineering"}
 
-    graph_service.invalidate(tmp_path)
-    fresh_graph = graph_service.get_graph(tmp_path)
+    graph_service.invalidate()
+    fresh_graph = graph_service.get_graph(kuzu_conn)
     assert {n.id for n in fresh_graph.nodes} == {"prompt-engineering", "few-shot-prompting"}
-
-
-def test_get_graph_skips_malformed_file_with_warning(tmp_path):
-    knowledge_dir = tmp_path / "knowledge"
-    knowledge_dir.mkdir()
-    _write_concept(knowledge_dir, "prompt-engineering", "Prompt Engineering")
-    (knowledge_dir / "broken.md").write_text("not even frontmatter", encoding="utf-8")
-
-    graph = graph_service.get_graph(tmp_path)
-
-    assert {n.id for n in graph.nodes} == {"prompt-engineering"}
-    assert any("broken" in w for w in graph.warnings)

@@ -1,96 +1,64 @@
-"""Orchestrates `repositories/source_repo.py` for the sources API.
+"""Orchestrates `repositories/source_record_repo.py` and
+`agents/naming_agent.py` for the sources API.
 
-The real logic here: auto-filing (category/filename) via real Claude
-reasoning when the caller doesn't supply them, collision-safe naming for
-auto-filed sources, committing each new/updated source file immediately
-(`claude_runner/git_guard.py`) so the knowledge repo's tree is already
-clean by the time a processing job's `ensure_clean` check runs, and
-auto-enqueuing that processing job right after — pasting content and
-having the knowledge base update is meant to be one action, not two — see
-docs/ARCHITECTURE.md §14.2: routes stay thin, services hold the logic.
+The real logic here: auto-filing a source's category via the naming agent
+when the caller doesn't supply one, and auto-enqueuing that source's
+processing job right after writing it — pasting content and having the
+knowledge base update is meant to be one action, not two (see
+docs/ARCHITECTURE.md §14.2: routes stay thin, services hold the logic).
+
+This is the Postgres/DB-backed cutover of what used to write to the
+filesystem `source/` directory (`repositories/source_repo.py`,
+`claude_runner/naming.py`, `claude_runner/git_guard.py`) — a `Source` row
+has no filename/path to collide on, so the old collision-avoidance and
+git-commit-on-save logic this replaces no longer applies.
 """
 
 import logging
-from pathlib import Path
 
-from app.claude_runner import git_guard, naming
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents import naming_agent
+from app.db.models import Job, Source
 from app.jobs.queue import JobQueue
-from app.jobs.store import Job
-from app.repositories import source_repo
-from app.repositories.source_repo import SourceFile
+from app.repositories import source_record_repo
 from app.services import job_service
 
 logger = logging.getLogger(__name__)
 
-_TEXT_EXTENSIONS = (".md", ".txt")
+
+async def list_sources(session: AsyncSession) -> list[Source]:
+    return await source_record_repo.list_sources(session)
 
 
-def list_sources(knowledge_repo_path: Path) -> list[SourceFile]:
-    return source_repo.list_sources(knowledge_repo_path)
-
-
-def read_source(knowledge_repo_path: Path, relative_path: str) -> str:
-    return source_repo.read_source(knowledge_repo_path, relative_path)
+async def read_source(session: AsyncSession, source_id: str) -> Source:
+    return await source_record_repo.read_source(session, source_id)
 
 
 async def create_text_source(
-    knowledge_repo_path: Path,
+    session: AsyncSession,
+    session_factory,
+    kuzu_conn,
     content: str,
     queue: JobQueue,
     category: str | None = None,
-    filename: str | None = None,
     topic_hint: str | None = None,
-) -> tuple[SourceFile, Job]:
-    """`category`/`filename` are optional — when either is missing, Claude
-    Code decides them by looking at what already exists under `source/`
-    (see `CLAUDE.md`-style reasoning in `claude_runner/naming.py`, not a
-    slugify heuristic). An explicitly-given filename can intentionally
-    overwrite an existing file (the caller knows what they're targeting);
-    an auto-suggested one never silently collides with existing material —
-    it gets a numeric suffix instead.
+) -> tuple[Source, Job]:
+    """`category` is optional — when it isn't given, the naming agent
+    decides it by surveying categories already in use
+    (`agents/naming_agent.suggest_source_location`), not a slugify
+    heuristic. `session_factory` is threaded through separately from
+    `session` because both `job_service.enqueue_processing` and the naming
+    agent's `ClaudeCodeEngine` need to open their own sessions across a
+    subprocess/worker-task boundary, not share this request's session.
 
     Returns the written source together with the processing job enqueued
     for it — saving and processing are one action from the caller's side.
     """
-    auto_named = not category or not filename
+    if not category:
+        category = await naming_agent.suggest_source_location(session, session_factory, content, topic_hint)
 
-    if auto_named:
-        suggested_category, suggested_filename = await naming.suggest_source_location(
-            knowledge_repo_path, content, topic_hint
-        )
-        category = category or suggested_category
-        filename = filename or suggested_filename
-
-    if not filename.endswith(_TEXT_EXTENSIONS):
-        filename = f"{filename}.md"
-
-    if auto_named:
-        filename = _unique_filename(knowledge_repo_path, category, filename)
-
-    source = source_repo.write_text_source(knowledge_repo_path, category, filename, content)
-    _commit_source(knowledge_repo_path, source)
-    job = await job_service.enqueue_processing(knowledge_repo_path, source.relative_path, queue)
-    logger.info("source saved: %s (job %s enqueued)", source.relative_path, job.id)
+    source = await source_record_repo.write_source(session, content=content, category=category, topic_hint=topic_hint)
+    job = await job_service.enqueue_processing(session_factory, kuzu_conn, source.id, queue)
+    logger.info("source saved: id=%s category=%r (job %s enqueued)", source.id, category, job.id)
     return source, job
-
-
-def upload_binary_source(knowledge_repo_path: Path, filename: str, data: bytes) -> SourceFile:
-    source = source_repo.write_binary_source(knowledge_repo_path, filename, data)
-    _commit_source(knowledge_repo_path, source)
-    return source
-
-
-def _unique_filename(knowledge_repo_path: Path, category: str, filename: str) -> str:
-    stem, _, ext = filename.rpartition(".")
-    root = knowledge_repo_path / "source" / category
-    candidate = filename
-    counter = 2
-    while (root / candidate).exists():
-        candidate = f"{stem}-{counter}.{ext}"
-        counter += 1
-    return candidate
-
-
-def _commit_source(knowledge_repo_path: Path, source: SourceFile) -> None:
-    relative_path = f"source/{source.relative_path}"
-    git_guard.commit_path(knowledge_repo_path, relative_path, f"source: add {source.relative_path}")

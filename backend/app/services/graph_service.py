@@ -1,43 +1,30 @@
 """Owns the derived graph's in-memory cache.
 
-Recomputed from `knowledge/*.md` on first request after a miss, invalidated
-explicitly whenever the underlying knowledge repo could have changed (a
-processing job completes — `job_service.py` — or a manual save in Phase 5).
-Cheap at "hundreds of nodes" scale (docs/ARCHITECTURE.md §6), so no
-incremental indexing. A malformed knowledge file is skipped with a warning
-rather than failing the whole graph, consistent with the "surface as
-warnings, don't crash" rule for broken relationship targets.
+Recomputed from Kùzu (`graph_repo.get_full_graph`) on first request after a
+miss, invalidated explicitly whenever the underlying graph could have
+changed (a processing job commits — `orchestrator/graph.py`'s `commit`
+node, or a manual knowledge edit). Cheap at "hundreds of nodes" scale
+(docs/ARCHITECTURE.md §6), so no incremental indexing.
+
+Exactly one Kùzu database backs the whole app, so the cache is a single
+module-level entry rather than the old filesystem model's per-repo-path
+dict.
 """
 
-from pathlib import Path
+import kuzu
 
-from app.knowledge import frontmatter
-from app.knowledge.graph import Graph, build_graph
-from app.repositories import knowledge_repo
+from app.repositories.graph_repo import GraphNeighborhood, get_full_graph
 
-_cache: dict[Path, Graph] = {}
+_cached_graph: GraphNeighborhood | None = None
 
 
-def get_graph(knowledge_repo_path: Path) -> Graph:
-    if knowledge_repo_path not in _cache:
-        _cache[knowledge_repo_path] = _build(knowledge_repo_path)
-    return _cache[knowledge_repo_path]
+def get_graph(kuzu_conn: kuzu.Connection) -> GraphNeighborhood:
+    global _cached_graph
+    if _cached_graph is None:
+        _cached_graph = get_full_graph(kuzu_conn)
+    return _cached_graph
 
 
-def invalidate(knowledge_repo_path: Path) -> None:
-    _cache.pop(knowledge_repo_path, None)
-
-
-def _build(knowledge_repo_path: Path) -> Graph:
-    concepts = []
-    parse_warnings = []
-
-    for slug in knowledge_repo.list_knowledge_slugs(knowledge_repo_path):
-        raw = knowledge_repo.read_knowledge(knowledge_repo_path, slug)
-        try:
-            concepts.append(frontmatter.parse(raw))
-        except frontmatter.FrontmatterError as exc:
-            parse_warnings.append(f"{slug}: could not parse frontmatter ({exc})")
-
-    graph = build_graph(concepts)
-    return Graph(nodes=graph.nodes, edges=graph.edges, warnings=[*parse_warnings, *graph.warnings])
+def invalidate() -> None:
+    global _cached_graph
+    _cached_graph = None

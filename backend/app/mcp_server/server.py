@@ -31,6 +31,7 @@ class AgentRole(str, Enum):
     TEXT_AGENT = "text_agent"
     GRAPH_AGENT = "graph_agent"
     VALIDATION_AGENT = "validation_agent"
+    CHAT = "chat"
 
 
 # Exact, closed enumeration — deliberately not a blanket `except ValueError`/
@@ -99,6 +100,7 @@ TOOL_REGISTRY: dict[AgentRole, tuple[str, ...]] = {
         "add_relationship", "update_relationship", "remove_relationship",
     ),
     AgentRole.VALIDATION_AGENT: ("get_concept", "get_graph_neighborhood", "search_concepts"),  # no writes, ever
+    AgentRole.CHAT: ("search_concepts", "get_concept", "get_graph_neighborhood"),
 }
 
 
@@ -203,7 +205,9 @@ def _build_update_concept_tool(server: "SynapseMcpServer") -> Callable:
 def _build_get_graph_neighborhood_tool(server: "SynapseMcpServer") -> Callable:
     def get_graph_neighborhood(concept_id: str, depth: int = 1) -> dict:
         try:
-            neighborhood = graph_repo.get_graph_neighborhood(server._kuzu_conn, concept_id, depth)
+            neighborhood = graph_repo.get_graph_neighborhood(
+                server._kuzu_conn, concept_id, depth, job_id=server._job_id
+            )
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)
         return {
@@ -218,7 +222,7 @@ def _build_get_graph_neighborhood_tool(server: "SynapseMcpServer") -> Callable:
 def _build_search_relationships_tool(server: "SynapseMcpServer") -> Callable:
     def search_relationships(concept_id: str) -> dict:
         try:
-            relationships = graph_repo.search_relationships(server._kuzu_conn, concept_id)
+            relationships = graph_repo.search_relationships(server._kuzu_conn, concept_id, job_id=server._job_id)
         except _TRANSLATED_EXCEPTIONS as exc:
             _translate(exc)
         return {"relationships": [_relationship_to_dict(r) for r in relationships]}

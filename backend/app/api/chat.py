@@ -1,8 +1,10 @@
 """Chat route. Thin: validate via schemas, call the service."""
 
-from fastapi import APIRouter, Depends
+import contextlib
 
-from app.core.config import ServerConfig, get_server_config
+from fastapi import APIRouter
+
+from app.core.postgres_connection import postgres_connection
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services import chat_service
 
@@ -10,6 +12,7 @@ router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, settings: ServerConfig = Depends(get_server_config)) -> ChatResponse:
-    reply = await chat_service.ask(settings.knowledge_repo_path, body.message, body.concept_slug)
+async def chat(body: ChatRequest) -> ChatResponse:
+    session_factory = contextlib.asynccontextmanager(postgres_connection.get_session)
+    reply = await chat_service.ask(session_factory, body.message, body.concept_id)
     return ChatResponse(reply=reply)

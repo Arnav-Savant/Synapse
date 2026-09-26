@@ -128,9 +128,22 @@ def ensure_node(conn: kuzu.Connection, concept_id: str, title: str, category: st
     logger.info("concept node upserted in graph: id=%s", concept_id)
 
 
-def get_graph_neighborhood(conn: kuzu.Connection, concept_id: str, depth: int = 1) -> GraphNeighborhood:
+def get_graph_neighborhood(
+    conn: kuzu.Connection, concept_id: str, depth: int = 1, job_id: str | None = None
+) -> GraphNeighborhood:
     """Nodes + edges within `depth` hops of concept_id. Raises
     ConceptNotFoundInGraphError if concept_id itself has no node.
+
+    Edges are scoped to `status = 'committed' OR rel.job_id = $job_id` — the
+    same shape already used by `_directional_duplicate_exists`/
+    `_symmetric_conflict_exists`/`would_create_cycle` — so a caller sees
+    every committed edge plus only its own job's in-flight pending edges,
+    never another (possibly crashed/orphaned) job's pending edges.
+    `job_id=None` (the default) confirmed empirically to behave as
+    committed-only: Kùzu treats a bound Python `None` as SQL NULL, so
+    `rel.job_id = $job_id` evaluates to NULL (falsy) rather than matching
+    anything, including other NULL job_ids — no conditional query text is
+    needed for the `job_id is None` case.
 
     `depth` controls a Cypher variable-length path bound, which Kùzu does
     not accept as a query parameter (confirmed empirically — only a literal
@@ -172,8 +185,9 @@ def get_graph_neighborhood(conn: kuzu.Connection, concept_id: str, depth: int = 
         edge_result = conn.execute(
             "MATCH (a:Concept)-[rel:RELATES_TO]->(b:Concept) "
             "WHERE a.id IN $ids AND b.id IN $ids "
+            "AND (rel.status = 'committed' OR rel.job_id = $job_id) "
             "RETURN a.id, b.id, rel.type, rel.note, rel.justification, rel.confidence, rel.status, rel.job_id",
-            {"ids": node_ids},
+            {"ids": node_ids, "job_id": job_id},
         )
         edges = [_row_to_relationship(row) for row in _rows(edge_result)]
 
@@ -187,13 +201,22 @@ def get_graph_neighborhood(conn: kuzu.Connection, concept_id: str, depth: int = 
     return GraphNeighborhood(center_id=concept_id, nodes=list(nodes_by_id.values()), edges=edges)
 
 
-def search_relationships(conn: kuzu.Connection, concept_id: str) -> list[RelationshipRecord]:
-    """All relationships touching concept_id, either direction."""
+def search_relationships(
+    conn: kuzu.Connection, concept_id: str, job_id: str | None = None
+) -> list[RelationshipRecord]:
+    """All relationships touching concept_id, either direction.
+
+    Same `status = 'committed' OR rel.job_id = $job_id` scoping as
+    `get_graph_neighborhood` (see its docstring for the empirically-confirmed
+    `job_id=None` behavior) — committed edges plus only the caller's own
+    job's pending edges.
+    """
     result = conn.execute(
         "MATCH (a:Concept)-[rel:RELATES_TO]->(b:Concept) "
-        "WHERE a.id = $id OR b.id = $id "
+        "WHERE (a.id = $id OR b.id = $id) "
+        "AND (rel.status = 'committed' OR rel.job_id = $job_id) "
         "RETURN a.id, b.id, rel.type, rel.note, rel.justification, rel.confidence, rel.status, rel.job_id",
-        {"id": concept_id},
+        {"id": concept_id, "job_id": job_id},
     )
     return [_row_to_relationship(row) for row in _rows(result)]
 
@@ -413,3 +436,30 @@ def remove_relationship(conn: kuzu.Connection, *, source_id: str, target_id: str
         {"source_id": source_id, "target_id": target_id, "edge_type": edge_type},
     )
     logger.info("relationship removed: %s -[%s]-> %s (job=%s)", source_id, edge_type, target_id, job_id)
+
+
+def get_full_graph(conn: kuzu.Connection) -> GraphNeighborhood:
+    """All Concept nodes + all committed RELATES_TO edges, no depth bound —
+    the "render everything" read for the graph visualization UI,
+    deliberately distinct from get_graph_neighborhood's bounded,
+    agent-scoped read.
+
+    Concept nodes carry no `status` property (see `_SCHEMA_STATEMENTS` in
+    `app/db/kuzu_db.py` and spec §9.3 — pending/committed is tracked per
+    *relationship*, not per concept), so "committed" filtering applies only
+    to edges here; every node currently in the graph is returned. Reuses the
+    GraphNeighborhood dataclass shape; `center_id=""` is the sentinel for
+    "no single center" since a full-graph view has none.
+    """
+    node_result = conn.execute("MATCH (c:Concept) RETURN c.id, c.title, c.category")
+    nodes = [NeighborNode(id=row[0], title=row[1], category=row[2]) for row in _rows(node_result)]
+
+    edge_result = conn.execute(
+        "MATCH (a:Concept)-[rel:RELATES_TO]->(b:Concept) "
+        "WHERE rel.status = 'committed' "
+        "RETURN a.id, b.id, rel.type, rel.note, rel.justification, rel.confidence, rel.status, rel.job_id"
+    )
+    edges = [_row_to_relationship(row) for row in _rows(edge_result)]
+
+    logger.info("full graph computed: nodes=%d edges=%d", len(nodes), len(edges))
+    return GraphNeighborhood(center_id="", nodes=nodes, edges=edges)
