@@ -4,11 +4,11 @@ import { useState } from "react";
 import { processSource } from "../../api/jobs";
 import { JobStatusIndicator } from "./JobStatusIndicator";
 
-export function ProcessSourceButton({ sourceRelativePath }: { sourceRelativePath: string }) {
+export function ProcessSourceButton({ sourceId }: { sourceId: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
 
   const triggerMutation = useMutation({
-    mutationFn: () => processSource(sourceRelativePath),
+    mutationFn: () => processSource(sourceId),
     onSuccess: (job) => setJobId(job.id),
   });
 

@@ -3,7 +3,7 @@ import { useEffect } from "react";
 
 import { type JobStatus, fetchJob } from "../../api/jobs";
 
-const TERMINAL_STATUSES = new Set<JobStatus>(["succeeded", "failed"]);
+const TERMINAL_STATUSES = new Set<JobStatus>(["succeeded", "failed", "needs_review"]);
 const POLL_INTERVAL_MS = 1000;
 
 /** Polls and displays a processing job's status, given its id. Used both
@@ -37,13 +37,21 @@ export function JobStatusIndicator({ jobId }: { jobId: string }) {
   }, [status, queryClient]);
 
   if (status === "succeeded") {
-    return <span className="text-emerald-400">done — {jobQuery.data?.committed_files.length ?? 0} file(s)</span>;
+    return <span className="text-emerald-400">done</span>;
   }
 
   if (status === "failed") {
     return (
       <span className="text-rose-400" title={jobQuery.data?.error ?? undefined}>
         failed — {jobQuery.data?.error}
+      </span>
+    );
+  }
+
+  if (status === "needs_review") {
+    return (
+      <span className="text-spark" title={jobQuery.data?.error ?? undefined}>
+        needs review
       </span>
     );
   }

@@ -3,8 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { GraphEdge } from "../../api/graph";
 import { computeNeighborhood } from "./neighborhood";
 
-function edge(source: string, target: string): GraphEdge {
-  return { source, target, type: "related-to", inverse_type: "related-to", note: null, implicit: false };
+function edge(source_id: string, target_id: string): GraphEdge {
+  return {
+    source_id,
+    target_id,
+    type: "related-to",
+    note: "",
+    justification: "",
+    confidence: null,
+    status: "committed",
+    job_id: null,
+  };
 }
 
 // a - b - c - d   (chain), plus an isolated node "z"

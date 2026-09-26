@@ -4,15 +4,9 @@ import type { GraphNode } from "../../api/graph";
 import { searchNodes } from "./search";
 
 const nodes: GraphNode[] = [
-  { id: "prompt-engineering", title: "Prompt Engineering", aliases: [], domains: [], status: "stub" },
-  {
-    id: "few-shot-prompting",
-    title: "Few-Shot Prompting",
-    aliases: ["Few-shot learning (prompting)"],
-    domains: [],
-    status: "stub",
-  },
-  { id: "prompt-injection", title: "Prompt Injection", aliases: ["Prompt Injection Attack"], domains: [], status: "stub" },
+  { id: "prompt-engineering", title: "Prompt Engineering", category: "prompting" },
+  { id: "few-shot-prompting", title: "Few-Shot Prompting", category: "prompting" },
+  { id: "prompt-injection", title: "Prompt Injection", category: "security" },
 ];
 
 describe("searchNodes", () => {
@@ -24,11 +18,6 @@ describe("searchNodes", () => {
   it("matches by exact title, case-insensitively", () => {
     const results = searchNodes(nodes, "prompt injection");
     expect(results[0].id).toBe("prompt-injection");
-  });
-
-  it("matches by alias", () => {
-    const results = searchNodes(nodes, "few-shot learning");
-    expect(results[0].id).toBe("few-shot-prompting");
   });
 
   it("matches by substring across multiple nodes and ranks prefix above substring", () => {

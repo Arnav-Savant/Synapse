@@ -15,9 +15,9 @@ const DOMAIN_PALETTE = [
 
 const DORMANT_NODE_COLOR = "#4B5568";
 
-export function colorForDomains(domains: string[]): string {
-  if (domains.length === 0) return DORMANT_NODE_COLOR;
-  return DOMAIN_PALETTE[hash(domains[0]) % DOMAIN_PALETTE.length];
+export function colorForCategory(category: string): string {
+  if (!category) return DORMANT_NODE_COLOR;
+  return DOMAIN_PALETTE[hash(category) % DOMAIN_PALETTE.length];
 }
 
 function hash(value: string): number {

@@ -23,12 +23,12 @@ export function buildTopicTree(nodes: GraphNode[], edges: GraphEdge[]): TopicTre
 
   for (const edge of edges) {
     if (edge.type !== "subtopic-of") continue;
-    // edge.source is the more specific concept (the child); edge.target
+    // edge.source_id is the more specific concept (the child); edge.target_id
     // is the broader one (the parent) — see docs/ARCHITECTURE.md §4.2.
-    const siblings = childrenOf.get(edge.target) ?? [];
-    siblings.push(edge.source);
-    childrenOf.set(edge.target, siblings);
-    hasParent.add(edge.source);
+    const siblings = childrenOf.get(edge.target_id) ?? [];
+    siblings.push(edge.source_id);
+    childrenOf.set(edge.target_id, siblings);
+    hasParent.add(edge.source_id);
   }
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));

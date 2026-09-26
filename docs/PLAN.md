@@ -4,6 +4,18 @@ Prerequisite reading: `REQUIREMENTS.md`, `ARCHITECTURE.md`. Each phase below
 produces a working, demonstrable increment. Do not start a phase whose
 dependencies aren't done; do not implement ahead of the current phase.
 
+**Historical record — superseded for anything filesystem/Claude-Code-invocation
+related.** This plan (Phases 0-6, all complete) describes the original
+single-repo, filesystem-based knowledge-processing design (`KNOWLEDGE_REPO_PATH`,
+`claude_runner/`, `git_guard.py`, `--restricted`/`--add-dir` invocation). All
+of that has since been replaced by the multi-agent architecture migration —
+see `docs/ARCHITECTURE.md` §5/§7 for the real current mechanism and
+`docs/superpowers/plans/2026-09-24-multi-agent-architecture.md` for that
+migration's own phase-by-phase record. Kept here unmodified as a historical
+record of the original build order, per this repo's top-level `CLAUDE.md`
+("Current status") — do not treat any filesystem/`claude_runner` detail
+below as current.
+
 Environment already verified (2026-09-22): Python 3.12.3, Node v22.22.3,
 npm 10.9.8, poetry available, Claude Code CLI v2.1.278 installed and logged
 in as the local user (`~/.claude/.credentials.json` present). Repo currently

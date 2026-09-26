@@ -5,6 +5,20 @@ This document captures functional and non-functional requirements as clarified
 with the product owner (Arnav). See `ARCHITECTURE.md` for how these are
 satisfied and `PLAN.md` for the build order.
 
+**Note on storage mechanism (post multi-agent migration):** several
+requirements below describe the knowledge base as "stored as Markdown"
+under a `knowledge/` directory. That storage mechanism was replaced by the
+multi-agent architecture migration — concepts and their content now live as
+`Concept` rows in Postgres, and relationships live in an embedded Kùzu graph
+DB, not Markdown files (see `docs/ARCHITECTURE.md` §7). The underlying
+*requirement* each of these FRs expresses (one deduplicated global graph,
+human-editable concept content, no API key required for core processing,
+graph derived from canonical data not hand-maintained) still holds exactly
+as written — only the storage substrate changed, not the intent. Not
+rewritten line-by-line here to avoid drifting this document from what was
+actually approved with the product owner; read it with that substitution in
+mind.
+
 ## 1. Purpose
 
 Synapse is a personal, local-first application for turning raw AI-study

@@ -63,26 +63,27 @@ export function Sources() {
         )}
         {lastSaved && (
           <p className="text-graphite">
-            saved as <span className="text-paper">{lastSaved.source.relative_path}</span> — processing:{" "}
+            saved as <span className="text-paper">{lastSaved.source.category}</span> — processing:{" "}
             <JobStatusIndicator jobId={lastSaved.jobId} />
           </p>
         )}
       </form>
 
       <div>
-        <h2 className="mb-3 text-graphite">source files</h2>
+        <h2 className="mb-3 text-graphite">sources</h2>
         {sourcesQuery.isPending && <p className="text-graphite">loading…</p>}
         {sourcesQuery.isError && <p className="text-rose-400">failed to load sources.</p>}
-        {sourcesQuery.data && sourcesQuery.data.length === 0 && (
-          <p className="text-graphite">no source files yet.</p>
-        )}
+        {sourcesQuery.data && sourcesQuery.data.length === 0 && <p className="text-graphite">no sources yet.</p>}
         <ul className="divide-y divide-ink-line border-y border-ink-line">
           {sourcesQuery.data?.map((source) => (
-            <li key={source.relative_path} className="flex items-center justify-between gap-4 py-2.5">
-              <span className="text-paper">{source.relative_path}</span>
+            <li key={source.id} className="flex items-center justify-between gap-4 py-2.5">
+              <span className="text-paper">
+                {source.category}
+                {source.topic_hint && <span className="text-graphite"> · {source.topic_hint}</span>}
+              </span>
               <div className="flex items-center gap-4">
-                <span className="text-graphite">{source.size_bytes}b</span>
-                <ProcessSourceButton sourceRelativePath={source.relative_path} />
+                <span className="text-graphite">{source.content.length} chars</span>
+                <ProcessSourceButton sourceId={source.id} />
               </div>
             </li>
           ))}

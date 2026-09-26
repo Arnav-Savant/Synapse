@@ -7,9 +7,9 @@ import CytoscapeComponent from "react-cytoscapejs";
 import { fetchGraph } from "../../api/graph";
 import { Breadcrumb } from "./Breadcrumb";
 import { GRAPH_STYLESHEET } from "./cytoscapeStyle";
-import { colorForDomains } from "./domainColors";
+import { colorForCategory } from "./domainColors";
 import { FilterControls } from "./FilterControls";
-import { collectDomains, collectStatuses, filterEdges, filterNodes, NO_FILTER, type FilterOptions } from "./filters";
+import { collectCategories, filterEdges, filterNodes, NO_FILTER, type FilterOptions } from "./filters";
 import { computeNeighborhood } from "./neighborhood";
 import { estimateNodeSize } from "./nodeSize";
 import { SearchBox } from "./SearchBox";
@@ -49,8 +49,7 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   const allNodes = useMemo(() => graphQuery.data?.nodes ?? [], [graphQuery.data]);
   const allEdges = useMemo(() => graphQuery.data?.edges ?? [], [graphQuery.data]);
 
-  const domainOptions = useMemo(() => collectDomains(allNodes), [allNodes]);
-  const statusOptions = useMemo(() => collectStatuses(allNodes), [allNodes]);
+  const categoryOptions = useMemo(() => collectCategories(allNodes), [allNodes]);
 
   const { visibleNodes, visibleEdges } = useMemo(() => {
     let nodes = filterNodes(allNodes, filters);
@@ -68,15 +67,14 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
     () =>
       CytoscapeComponent.normalizeElements([
         ...visibleNodes.map((n) => ({
-          data: { id: n.id, label: n.title, color: colorForDomains(n.domains), ...estimateNodeSize(n.title) },
+          data: { id: n.id, label: n.title, color: colorForCategory(n.category), ...estimateNodeSize(n.title) },
         })),
         ...visibleEdges.map((e) => ({
           data: {
-            id: `${e.source}->${e.target}->${e.type}`,
-            source: e.source,
-            target: e.target,
+            id: `${e.source_id}->${e.target_id}->${e.type}`,
+            source: e.source_id,
+            target: e.target_id,
             type: e.type,
-            implicit: e.implicit,
           },
         })),
       ]),
@@ -86,9 +84,7 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   // Forces a fresh cytoscape mount (and layout re-run) whenever the
   // *visible set* changes — react-cytoscapejs doesn't re-run layout on its
   // own when `elements` changes, only on initial mount.
-  const cytoscapeKey = `${filters.domains.join(",")}|${filters.statuses.join(",")}|${
-    focusMode ? `focus:${selectedNodeId}` : "global"
-  }`;
+  const cytoscapeKey = `${filters.categories.join(",")}|${focusMode ? `focus:${selectedNodeId}` : "global"}`;
 
   function selectNode(nodeId: string) {
     setSearchQuery("");
@@ -120,12 +116,7 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-5 font-mono text-xs">
         <SearchBox nodes={allNodes} query={searchQuery} onQueryChange={setSearchQuery} onSelect={selectNode} />
-        <FilterControls
-          domainOptions={domainOptions}
-          statusOptions={statusOptions}
-          filters={filters}
-          onChange={setFilters}
-        />
+        <FilterControls categoryOptions={categoryOptions} filters={filters} onChange={setFilters} />
       </div>
 
       <Breadcrumb
@@ -160,17 +151,6 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
           />
         )}
       </div>
-
-      {graphQuery.data && graphQuery.data.warnings.length > 0 && (
-        <div className="rounded-sm border border-spark-dim/40 bg-ink-soft p-3 font-mono text-xs text-spark">
-          <p className="font-medium">warnings</p>
-          <ul className="list-disc pl-4 text-graphite">
-            {graphQuery.data.warnings.map((warning, index) => (
-              <li key={index}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

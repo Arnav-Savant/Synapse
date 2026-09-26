@@ -1,13 +1,12 @@
 import type { FilterOptions } from "./filters";
 
 interface FilterControlsProps {
-  domainOptions: string[];
-  statusOptions: string[];
+  categoryOptions: string[];
   filters: FilterOptions;
   onChange: (filters: FilterOptions) => void;
 }
 
-export function FilterControls({ domainOptions, statusOptions, filters, onChange }: FilterControlsProps) {
+export function FilterControls({ categoryOptions, filters, onChange }: FilterControlsProps) {
   function toggle(list: string[], value: string): string[] {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
   }
@@ -15,16 +14,10 @@ export function FilterControls({ domainOptions, statusOptions, filters, onChange
   return (
     <div className="flex flex-wrap items-center gap-4">
       <FilterGroup
-        label="domain"
-        options={domainOptions}
-        selected={filters.domains}
-        onToggle={(value) => onChange({ ...filters, domains: toggle(filters.domains, value) })}
-      />
-      <FilterGroup
-        label="status"
-        options={statusOptions}
-        selected={filters.statuses}
-        onToggle={(value) => onChange({ ...filters, statuses: toggle(filters.statuses, value) })}
+        label="category"
+        options={categoryOptions}
+        selected={filters.categories}
+        onToggle={(value) => onChange({ ...filters, categories: toggle(filters.categories, value) })}
       />
     </div>
   );

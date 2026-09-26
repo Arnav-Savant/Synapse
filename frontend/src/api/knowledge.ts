@@ -1,29 +1,29 @@
 import { apiGet, apiPut } from "./client";
 
 export interface Relationship {
+  source_id: string;
+  target_id: string;
   type: string;
-  target: string;
   note: string | null;
 }
 
 export interface KnowledgeDetail {
-  slug: string;
+  id: string;
   title: string;
-  aliases: string[];
-  domains: string[];
-  status: string;
-  created: string | null;
-  updated: string | null;
-  sources: string[];
-  relationships: Relationship[];
+  category: string;
+  metadata: Record<string, unknown>;
   body: string;
-  raw_content: string;
+  relationships: Relationship[];
 }
 
-export function fetchKnowledgeDetail(slug: string): Promise<KnowledgeDetail> {
-  return apiGet<KnowledgeDetail>(`/knowledge/${encodeURIComponent(slug)}`);
+export function fetchKnowledgeDetail(conceptId: string): Promise<KnowledgeDetail> {
+  return apiGet<KnowledgeDetail>(`/knowledge/${encodeURIComponent(conceptId)}`);
 }
 
-export function updateKnowledge(slug: string, content: string): Promise<KnowledgeDetail> {
-  return apiPut<KnowledgeDetail>(`/knowledge/${encodeURIComponent(slug)}`, { content });
+export function updateKnowledge(
+  conceptId: string,
+  body: string,
+  metadata: Record<string, unknown>,
+): Promise<KnowledgeDetail> {
+  return apiPut<KnowledgeDetail>(`/knowledge/${encodeURIComponent(conceptId)}`, { body, metadata });
 }

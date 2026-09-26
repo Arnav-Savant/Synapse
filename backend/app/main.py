@@ -36,7 +36,6 @@ from app.jobs.reconciliation import reconcile_orphaned_running_jobs
 from app.repositories import graph_repo
 from app.repositories.agent_config_repo import AgentConfigNotFoundError
 from app.repositories.concept_repo import ConceptNotFoundError
-from app.repositories.paths import PathTraversalError
 from app.repositories.source_record_repo import SourceRecordNotFoundError
 from app.services.agent_config_service import AgentConfigValidationError
 
@@ -92,12 +91,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.exception_handler(PathTraversalError)
-async def handle_path_traversal(request: Request, exc: PathTraversalError) -> JSONResponse:
-    logger.warning("path traversal attempt blocked: %s", exc)
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.exception_handler(ConceptNotFoundError)

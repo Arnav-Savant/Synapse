@@ -1,21 +1,18 @@
 import { apiGet, apiPost } from "./client";
 
-export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+export type JobStatus = "running" | "succeeded" | "failed" | "needs_review";
 
 export interface Job {
   id: string;
-  source_relative_path: string;
+  source_id: string;
   status: JobStatus;
+  error: string | null;
   created_at: string;
   updated_at: string;
-  result_summary: string | null;
-  error: string | null;
-  committed_files: string[];
-  cost_usd: number | null;
 }
 
-export function processSource(sourceRelativePath: string): Promise<Job> {
-  return apiPost<Job>("/jobs/process", { source_relative_path: sourceRelativePath });
+export function processSource(sourceId: string): Promise<Job> {
+  return apiPost<Job>("/jobs/process", { source_id: sourceId });
 }
 
 export function fetchJob(jobId: string): Promise<Job> {

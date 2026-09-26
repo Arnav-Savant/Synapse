@@ -1,4 +1,14 @@
 # docker-compose.yml
+#
+# Postgres only. The backend runs on the host directly (`poetry run python
+# main.py`), not in a container: it invokes the `claude` CLI as a subprocess
+# and relies on the host user's own OAuth login (`~/.claude/.credentials.json`,
+# see docs/ARCHITECTURE.md §5.1/FR2.2) — a container has neither the `claude`
+# CLI installed nor that credential file, so containerizing the backend would
+# break every agent invocation. (An earlier `backend` service + `backend/Dockerfile`
+# existed here from before that constraint was locked in; removed as dead,
+# non-functional weight — see git history if a containerized backend is ever
+# revisited with the CLI/credential mounting worked out properly.)
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,26 +21,5 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
 
-  backend:
-    build: ./backend
-    depends_on:
-      - postgres
-    environment:
-      DATABASE_HOST: postgres
-      DATABASE_PORT: "5432"
-      DATABASE_USER: synapse
-      DATABASE_PASSWORD: synapse
-      DATABASE_NAME: synapse
-      APP_HOST: "127.0.0.1"
-      APP_PORT: "8000"
-      KUZU_DB_PATH: /data/kuzu
-    env_file:
-      - backend/.env
-    ports:
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - kuzu-data:/data/kuzu
-
 volumes:
   pg-data:
-  kuzu-data:

@@ -29,8 +29,8 @@ export function computeNeighborhood(nodeId: string, edges: GraphEdge[], depth: n
 function buildAdjacency(edges: GraphEdge[]): Map<string, string[]> {
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {
-    add(adjacency, edge.source, edge.target);
-    add(adjacency, edge.target, edge.source);
+    add(adjacency, edge.source_id, edge.target_id);
+    add(adjacency, edge.target_id, edge.source_id);
   }
   return adjacency;
 }

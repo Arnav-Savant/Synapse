@@ -3,7 +3,6 @@ import { useState } from "react";
 
 import { fetchKnowledgeDetail, updateKnowledge } from "../../api/knowledge";
 import { ApiError } from "../../api/client";
-import { SourceRawViewer } from "../source/SourceRawViewer";
 import { ConceptMeta } from "./ConceptMeta";
 import { EditForm } from "./EditForm";
 import { MarkdownBody } from "./MarkdownBody";
@@ -19,10 +18,9 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
   const detailQuery = useQuery({ queryKey: ["knowledge", slug], queryFn: () => fetchKnowledgeDetail(slug) });
 
   const [mode, setMode] = useState<"view" | "edit">("view");
-  const [openSource, setOpenSource] = useState<string | null>(null);
 
   const saveMutation = useMutation({
-    mutationFn: (content: string) => updateKnowledge(slug, content),
+    mutationFn: (body: string) => updateKnowledge(slug, body, detailQuery.data?.metadata ?? {}),
     onSuccess: () => {
       setMode("view");
       void queryClient.invalidateQueries({ queryKey: ["knowledge", slug] });
@@ -61,30 +59,12 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
         </>
       ) : (
         <EditForm
-          initialContent={detail.raw_content}
+          initialContent={detail.body}
           onSave={(content) => saveMutation.mutate(content)}
           onCancel={() => setMode("view")}
           isSaving={saveMutation.isPending}
           error={saveMutation.isError ? (saveMutation.error as Error).message : null}
         />
-      )}
-
-      {detail.sources.length > 0 && (
-        <div className="space-y-2 border-t border-paper-line pt-4">
-          <p className="font-mono text-[11px] text-paper-ink/50">sources</p>
-          <div className="flex flex-wrap gap-2">
-            {detail.sources.map((source) => (
-              <button
-                key={source}
-                onClick={() => setOpenSource(openSource === source ? null : source)}
-                className="border border-paper-line px-2 py-1 font-mono text-[11px] text-paper-ink/70 hover:border-spark-dim hover:text-spark-dim"
-              >
-                {source}
-              </button>
-            ))}
-          </div>
-          {openSource && <SourceRawViewer relativePath={openSource} onClose={() => setOpenSource(null)} />}
-        </div>
       )}
     </div>
   );

@@ -17,7 +17,7 @@ export function searchNodes(nodes: GraphNode[], query: string): GraphNode[] {
 }
 
 function bestMatchScore(node: GraphNode, query: string): number {
-  const candidates = [node.title, ...node.aliases, node.id];
+  const candidates = [node.title, node.id];
   return Math.max(...candidates.map((candidate) => matchScore(candidate.toLowerCase(), query)));
 }
 

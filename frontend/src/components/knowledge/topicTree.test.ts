@@ -4,15 +4,33 @@ import type { GraphEdge, GraphNode } from "../../api/graph";
 import { buildTopicTree } from "./topicTree";
 
 function node(id: string, title?: string): GraphNode {
-  return { id, title: title ?? id, aliases: [], domains: [], status: "stub" };
+  return { id, title: title ?? id, category: "stub" };
 }
 
 function subtopicOf(child: string, parent: string): GraphEdge {
-  return { source: child, target: parent, type: "subtopic-of", inverse_type: "has-subtopic", note: null, implicit: false };
+  return {
+    source_id: child,
+    target_id: parent,
+    type: "subtopic-of",
+    note: "",
+    justification: "",
+    confidence: null,
+    status: "committed",
+    job_id: null,
+  };
 }
 
 function relatedTo(a: string, b: string): GraphEdge {
-  return { source: a, target: b, type: "related-to", inverse_type: "related-to", note: null, implicit: false };
+  return {
+    source_id: a,
+    target_id: b,
+    type: "related-to",
+    note: "",
+    justification: "",
+    confidence: null,
+    status: "committed",
+    job_id: null,
+  };
 }
 
 describe("buildTopicTree", () => {

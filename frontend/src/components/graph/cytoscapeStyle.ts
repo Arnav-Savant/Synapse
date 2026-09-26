@@ -51,12 +51,6 @@ export const GRAPH_STYLESHEET: cytoscape.StylesheetJsonBlock[] = [
     },
   },
   {
-    selector: "edge[?implicit]",
-    style: {
-      "line-style": "dashed",
-    },
-  },
-  {
     selector: "edge.highlighted",
     style: {
       "line-color": "#D9A441",
