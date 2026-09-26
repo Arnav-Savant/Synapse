@@ -1,10 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
 import { useEffect, useMemo, useRef, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 
-import { fetchGraph } from "../../api/graph";
+import type { GraphEdge, GraphNode } from "../../api/graph";
 import { Breadcrumb } from "./Breadcrumb";
 import { GRAPH_STYLESHEET } from "./cytoscapeStyle";
 import { colorForCategory } from "./domainColors";
@@ -12,7 +11,6 @@ import { FilterControls } from "./FilterControls";
 import { collectCategories, filterEdges, filterNodes, NO_FILTER, type FilterOptions } from "./filters";
 import { computeNeighborhood } from "./neighborhood";
 import { estimateNodeSize } from "./nodeSize";
-import { SearchBox } from "./SearchBox";
 
 cytoscape.use(fcose);
 
@@ -31,6 +29,10 @@ const FCOSE_LAYOUT = {
 } as unknown as cytoscape.LayoutOptions;
 
 interface GraphViewProps {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  isPending: boolean;
+  isError: boolean;
   /** Controlled selection, shared with the knowledge viewer (Phase 5) so
    * graph clicks and wikilink navigation stay in sync regardless of which
    * one triggered the change. */
@@ -38,16 +40,11 @@ interface GraphViewProps {
   onSelectNode: (nodeId: string) => void;
 }
 
-export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
-  const graphQuery = useQuery({ queryKey: ["graph"], queryFn: fetchGraph });
+export function GraphView({ nodes: allNodes, edges: allEdges, isPending, isError, selectedNodeId, onSelectNode }: GraphViewProps) {
   const cyRef = useRef<cytoscape.Core | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterOptions>(NO_FILTER);
   const [focusMode, setFocusMode] = useState(false);
-
-  const allNodes = useMemo(() => graphQuery.data?.nodes ?? [], [graphQuery.data]);
-  const allEdges = useMemo(() => graphQuery.data?.edges ?? [], [graphQuery.data]);
 
   const categoryOptions = useMemo(() => collectCategories(allNodes), [allNodes]);
 
@@ -86,11 +83,6 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   // own when `elements` changes, only on initial mount.
   const cytoscapeKey = `${filters.categories.join(",")}|${focusMode ? `focus:${selectedNodeId}` : "global"}`;
 
-  function selectNode(nodeId: string) {
-    setSearchQuery("");
-    onSelectNode(nodeId);
-  }
-
   // Re-applies selection highlight/centering whenever the selected node
   // changes OR the cytoscape instance is freshly remounted (a new instance
   // starts with nothing selected) — covers both a graph click and an
@@ -113,44 +105,40 @@ export function GraphView({ selectedNodeId, onSelectNode }: GraphViewProps) {
   }, [selectedNodeId, cytoscapeKey]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-5 font-mono text-xs">
-        <SearchBox nodes={allNodes} query={searchQuery} onQueryChange={setSearchQuery} onSelect={selectNode} />
+    <div className="relative h-full w-full bg-ink">
+      <div className="absolute left-4 top-4 z-10 max-w-md space-y-2 rounded-sm border border-ink-line bg-ink-soft/90 p-3 font-mono text-xs shadow-lg shadow-black/40 backdrop-blur-sm">
         <FilterControls categoryOptions={categoryOptions} filters={filters} onChange={setFilters} />
+        <Breadcrumb
+          selectedNodeId={selectedNodeId}
+          focusMode={focusMode}
+          focusDepth={FOCUS_DEPTH}
+          onToggleFocus={setFocusMode}
+        />
       </div>
 
-      <Breadcrumb
-        selectedNodeId={selectedNodeId}
-        focusMode={focusMode}
-        focusDepth={FOCUS_DEPTH}
-        onToggleFocus={setFocusMode}
-      />
-
-      <div className="overflow-hidden rounded-sm border border-ink-line bg-ink" style={{ height: 600 }}>
-        {graphQuery.isPending && <p className="p-4 font-mono text-xs text-graphite">loading graph…</p>}
-        {graphQuery.isError && <p className="p-4 font-mono text-xs text-rose-400">failed to load graph.</p>}
-        {graphQuery.data && visibleNodes.length === 0 && (
-          <p className="p-4 font-mono text-xs text-graphite">no concepts match the current filters.</p>
-        )}
-        {graphQuery.data && visibleNodes.length > 0 && (
-          <CytoscapeComponent
-            key={cytoscapeKey}
-            elements={elements}
-            style={{ width: "100%", height: "100%" }}
-            // cytoscape-fcose has no official types, so its layout options
-            // (e.g. "fcose" as a `name`) aren't part of @types/cytoscape's
-            // built-in LayoutOptions union — cast through unknown rather
-            // than fight that gap.
-            layout={FCOSE_LAYOUT}
-            stylesheet={GRAPH_STYLESHEET}
-            cy={(cy) => {
-              cyRef.current = cy;
-              cy.off("tap", "node");
-              cy.on("tap", "node", (evt) => selectNode(evt.target.id()));
-            }}
-          />
-        )}
-      </div>
+      {isPending && <p className="p-4 font-mono text-xs text-graphite">loading graph…</p>}
+      {isError && <p className="p-4 font-mono text-xs text-signal">failed to load graph.</p>}
+      {!isPending && !isError && visibleNodes.length === 0 && (
+        <p className="p-4 font-mono text-xs text-graphite">no concepts match the current filters.</p>
+      )}
+      {!isPending && !isError && visibleNodes.length > 0 && (
+        <CytoscapeComponent
+          key={cytoscapeKey}
+          elements={elements}
+          style={{ width: "100%", height: "100%" }}
+          // cytoscape-fcose has no official types, so its layout options
+          // (e.g. "fcose" as a `name`) aren't part of @types/cytoscape's
+          // built-in LayoutOptions union — cast through unknown rather
+          // than fight that gap.
+          layout={FCOSE_LAYOUT}
+          stylesheet={GRAPH_STYLESHEET}
+          cy={(cy) => {
+            cyRef.current = cy;
+            cy.off("tap", "node");
+            cy.on("tap", "node", (evt) => onSelectNode(evt.target.id()));
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -205,3 +205,72 @@ async def test_update_missing_knowledge_returns_404(client: AsyncClient):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_knowledge_removes_concept_and_relationships(
+    client: AsyncClient, db_session, kuzu_conn
+):
+    await _seed_concept(db_session, kuzu_conn, concept_id="prompt-injection", title="Prompt Injection")
+    await _seed_concept(db_session, kuzu_conn, concept_id="prompt-engineering", title="Prompt Engineering")
+    await _seed_concept(db_session, kuzu_conn, concept_id="jailbreaking", title="Jailbreaking")
+    # prompt-injection is both a source (-> prompt-engineering) and a target
+    # (<- jailbreaking) to exercise both relationship directions.
+    graph_repo.add_relationship(
+        kuzu_conn,
+        source_id="prompt-injection",
+        target_id="prompt-engineering",
+        type="subtopic-of",
+        justification="j",
+        job_id="job-1",
+    )
+    graph_repo.add_relationship(
+        kuzu_conn,
+        source_id="jailbreaking",
+        target_id="prompt-injection",
+        type="related-to",
+        justification="j",
+        job_id="job-1",
+    )
+
+    response = await client.delete("/api/knowledge/prompt-injection")
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+    deleted = await db_session.get(Concept, "prompt-injection")
+    assert deleted is None
+
+    assert graph_repo.search_relationships(kuzu_conn, "prompt-injection") == []
+    assert graph_repo.search_relationships(kuzu_conn, "prompt-engineering") == []
+    assert graph_repo.search_relationships(kuzu_conn, "jailbreaking") == []
+
+    node_result = kuzu_conn.execute("MATCH (n:Concept {id: 'prompt-injection'}) RETURN n.id")
+    assert not node_result.has_next()
+
+
+@pytest.mark.asyncio
+async def test_delete_knowledge_with_no_kuzu_node_does_not_error(client: AsyncClient, db_session, kuzu_conn):
+    concept = Concept(
+        id="orphan-concept",
+        title="Orphan Concept",
+        category="misc",
+        body="Never given a graph node.",
+        metadata_={},
+        status="committed",
+    )
+    db_session.add(concept)
+    await db_session.flush()
+
+    response = await client.delete("/api/knowledge/orphan-concept")
+
+    assert response.status_code == 204
+    deleted = await db_session.get(Concept, "orphan-concept")
+    assert deleted is None
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_knowledge_returns_404(client: AsyncClient):
+    response = await client.delete("/api/knowledge/does-not-exist")
+
+    assert response.status_code == 404

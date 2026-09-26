@@ -7,6 +7,8 @@ Write path: a direct human edit — `concept_repo.update_concept_content`
 (NOT the agent-facing `update_concept` tool: no job/agent semantics, no
 re-staging to `pending`, sets `status='committed'` directly) — then
 invalidate the derived graph cache.
+Delete path: a direct human delete — removes the Postgres row and, if
+present, the Kùzu node plus every relationship touching it.
 """
 
 import kuzu
@@ -43,3 +45,9 @@ async def update_knowledge(
     graph_service.invalidate()
     relationships = graph_repo.search_relationships(kuzu_conn, concept_id)
     return concept, relationships
+
+
+async def delete_knowledge(session: AsyncSession, kuzu_conn: kuzu.Connection, concept_id: str) -> None:
+    await concept_repo.delete_concept(session, concept_id)
+    graph_repo.remove_node_and_relationships(kuzu_conn, concept_id)
+    graph_service.invalidate()

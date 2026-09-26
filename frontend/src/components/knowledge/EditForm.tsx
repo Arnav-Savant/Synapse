@@ -34,7 +34,7 @@ export function EditForm({ initialContent, onSave, onCancel, isSaving, error }: 
         <button onClick={onCancel} disabled={isSaving} className="text-paper-ink/60 hover:text-paper-ink">
           cancel
         </button>
-        {error && <span className="text-rose-700">{error}</span>}
+        {error && <span className="text-signal-dim">{error}</span>}
       </div>
     </div>
   );

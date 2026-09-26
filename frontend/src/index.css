@@ -17,6 +17,9 @@
   --color-graphite: #7d8698; /* quiet/dormant text on the dark canvas */
   --color-spark: #d9a441; /* the one accent: active / selected / firing */
   --color-spark-dim: #8a6a30; /* spark at rest (e.g. unfocused indicator) */
+  --color-signal: #b8695c; /* muted clay-red: errors/attention on the dark canvas */
+  --color-signal-dim: #8b4a3d; /* signal, darkened for legibility on paper (mirrors spark/spark-dim) */
+  --color-signal-ok: #7da870; /* muted sage-green success, in the graph's DOMAIN_PALETTE family */
 
   --font-serif: "Source Serif 4", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;

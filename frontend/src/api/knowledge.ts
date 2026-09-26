@@ -1,4 +1,4 @@
-import { apiGet, apiPut } from "./client";
+import { apiDelete, apiGet, apiPut } from "./client";
 
 export interface Relationship {
   source_id: string;
@@ -26,4 +26,8 @@ export function updateKnowledge(
   metadata: Record<string, unknown>,
 ): Promise<KnowledgeDetail> {
   return apiPut<KnowledgeDetail>(`/knowledge/${encodeURIComponent(conceptId)}`, { body, metadata });
+}
+
+export function deleteKnowledge(conceptId: string): Promise<void> {
+  return apiDelete(`/knowledge/${encodeURIComponent(conceptId)}`);
 }

@@ -7,7 +7,7 @@ export function HealthBadge() {
   const { data, isPending, isError } = useQuery({ queryKey: ["health"], queryFn: fetchHealth });
 
   const label = isPending ? "checking…" : isError ? "backend unreachable" : data.status;
-  const color = isPending ? "bg-graphite" : isError ? "bg-rose-400" : "bg-emerald-400";
+  const color = isPending ? "bg-graphite" : isError ? "bg-signal" : "bg-signal-ok";
 
   return (
     <div className="flex items-center gap-2 font-mono text-xs text-graphite">

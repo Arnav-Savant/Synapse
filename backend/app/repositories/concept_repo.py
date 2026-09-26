@@ -151,6 +151,20 @@ async def list_committed_concepts(session: AsyncSession) -> list[ConceptMetadata
     return [ConceptMetadata(id=row.id, title=row.title, category=row.category) for row in result.all()]
 
 
+async def delete_concept(session: AsyncSession, concept_id: str) -> None:
+    """Direct human delete (Knowledge editor 'delete') — removes the Postgres
+    row outright. Raises ConceptNotFoundError if missing, same lookup pattern
+    as update_concept/update_concept_content."""
+    result = await session.execute(select(Concept).where(Concept.id == concept_id))
+    concept = result.scalars().first()
+    if concept is None:
+        raise ConceptNotFoundError(concept_id)
+
+    await session.delete(concept)
+    await session.commit()
+    logger.info("concept %s deleted", concept_id)
+
+
 async def update_concept_content(session: AsyncSession, *, concept_id: str, body: str, metadata: dict) -> Concept:
     """Direct human edit (Knowledge editor 'save') — NOT the agent-facing
     update_concept tool. Sets status='committed' directly and does NOT

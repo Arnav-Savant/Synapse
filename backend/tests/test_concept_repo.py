@@ -6,6 +6,7 @@ from app.repositories.concept_repo import (
     ConceptMetadata,
     ConceptNotFoundError,
     create_concept,
+    delete_concept,
     get_concept,
     get_concept_metadata,
     list_committed_concepts,
@@ -293,3 +294,27 @@ async def test_update_concept_content_sets_committed_and_leaves_job_id_untouched
 async def test_update_concept_content_not_found_raises(db_session: AsyncSession):
     with pytest.raises(ConceptNotFoundError):
         await update_concept_content(db_session, concept_id="does-not-exist", body="x", metadata={})
+
+
+@pytest.mark.asyncio
+async def test_delete_concept_removes_row(db_session: AsyncSession):
+    concept = Concept(
+        title="Overfitting",
+        category="machine-learning",
+        body="...",
+        metadata_={},
+        status="committed",
+    )
+    db_session.add(concept)
+    await db_session.flush()
+
+    await delete_concept(db_session, concept.id)
+
+    with pytest.raises(ConceptNotFoundError):
+        await get_concept(db_session, concept.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_concept_not_found_raises(db_session: AsyncSession):
+    with pytest.raises(ConceptNotFoundError):
+        await delete_concept(db_session, "does-not-exist")

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { fetchKnowledgeDetail, updateKnowledge } from "../../api/knowledge";
+import { deleteKnowledge, fetchKnowledgeDetail, updateKnowledge } from "../../api/knowledge";
 import { ApiError } from "../../api/client";
 import { ConceptMeta } from "./ConceptMeta";
 import { EditForm } from "./EditForm";
@@ -11,13 +11,17 @@ interface KnowledgeViewerProps {
   slug: string;
   onNavigate: (slug: string) => void;
   onAskAboutConcept?: (slug: string) => void;
+  /** Called after a successful delete — the caller owns clearing whatever
+   * selection state made this concept visible in the first place. */
+  onDeleted?: () => void;
 }
 
-export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: KnowledgeViewerProps) {
+export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept, onDeleted }: KnowledgeViewerProps) {
   const queryClient = useQueryClient();
   const detailQuery = useQuery({ queryKey: ["knowledge", slug], queryFn: () => fetchKnowledgeDetail(slug) });
 
   const [mode, setMode] = useState<"view" | "edit">("view");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: (body: string) => updateKnowledge(slug, body, detailQuery.data?.metadata ?? {}),
@@ -28,13 +32,22 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteKnowledge(slug),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
+      void queryClient.invalidateQueries({ queryKey: ["knowledge", slug] });
+      onDeleted?.();
+    },
+  });
+
   if (detailQuery.isPending) {
     return <p className="font-mono text-xs text-graphite">loading…</p>;
   }
 
   if (detailQuery.isError) {
     const message = detailQuery.error instanceof ApiError ? detailQuery.error.message : "Failed to load concept.";
-    return <p className="font-mono text-xs text-rose-400">{message}</p>;
+    return <p className="font-mono text-xs text-signal">{message}</p>;
   }
 
   const detail = detailQuery.data;
@@ -55,7 +68,32 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept }: Knowled
                 ask about this concept
               </button>
             )}
+            <button onClick={() => setConfirmingDelete(true)} className="text-signal-dim hover:text-signal">
+              delete
+            </button>
           </div>
+          {confirmingDelete && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-paper-line pt-4 font-mono text-xs text-paper-ink/80">
+              <span>delete this concept? this removes it and every relationship it has.</span>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="bg-signal-dim px-3 py-1 text-paper disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? "deleting…" : "confirm"}
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleteMutation.isPending}
+                className="text-paper-ink/60 hover:text-paper-ink"
+              >
+                cancel
+              </button>
+              {deleteMutation.isError && (
+                <span className="text-signal-dim">{(deleteMutation.error as Error).message}</span>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <EditForm

@@ -56,3 +56,11 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 export function apiPut<T>(path: string, body: unknown): Promise<T> {
   return apiSend<T>("PUT", path, body);
 }
+
+export async function apiDelete(path: string): Promise<void> {
+  const response = await fetch(`/api${path}`, { method: "DELETE" });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await parseErrorDetail(response, `DELETE ${path} failed: ${response.status}`));
+  }
+}

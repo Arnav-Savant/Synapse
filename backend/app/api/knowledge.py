@@ -1,7 +1,7 @@
 """Knowledge routes. Thin: validate via schemas, call the service."""
 
 import kuzu
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.postgres_connection import postgres_connection
@@ -57,6 +57,16 @@ async def update_knowledge(
         metadata=body.metadata,
     )
     return _to_response(concept, relationships)
+
+
+@router.delete("/knowledge/{concept_id}", status_code=204)
+async def delete_knowledge(
+    concept_id: str,
+    session: AsyncSession = Depends(postgres_connection.get_session),
+    kuzu_conn: kuzu.Connection = Depends(get_kuzu_conn),
+) -> Response:
+    await knowledge_service.delete_knowledge(session, kuzu_conn, concept_id)
+    return Response(status_code=204)
 
 
 def _to_response(concept: Concept, relationships: list[RelationshipRecord]) -> KnowledgeDetailResponse:

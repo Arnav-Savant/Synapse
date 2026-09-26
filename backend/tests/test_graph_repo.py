@@ -16,6 +16,7 @@ from app.repositories.graph_repo import (
     ensure_node,
     get_full_graph,
     get_graph_neighborhood,
+    remove_node_and_relationships,
     remove_relationship,
     search_relationships,
     update_relationship,
@@ -63,6 +64,13 @@ def _create_edge(conn, source_id, target_id, rel_type, *, note="", justification
             "job_id": job_id,
         },
     )
+
+
+def _node_ids(result: kuzu.QueryResult) -> set[str]:
+    ids = set()
+    while result.has_next():
+        ids.add(result.get_next()[0])
+    return ids
 
 
 def _build_chain_fixture(conn):
@@ -536,6 +544,35 @@ def test_remove_relationship_not_found_raises(kuzu_conn):
 
     with pytest.raises(RelationshipNotFoundError):
         remove_relationship(kuzu_conn, source_id="a", target_id="b", type="related-to", job_id="job-1")
+
+
+# --- remove_node_and_relationships -----------------------------------------
+
+
+def test_remove_node_and_relationships_removes_node_and_edges_both_directions(kuzu_conn):
+    _create_node(kuzu_conn, "a", "A", "cat")
+    _create_node(kuzu_conn, "b", "B", "cat")
+    _create_node(kuzu_conn, "c", "C", "cat")
+    _create_edge(kuzu_conn, "a", "b", "related-to")  # b is target
+    _create_edge(kuzu_conn, "b", "c", "related-to")  # b is source
+
+    remove_node_and_relationships(kuzu_conn, "b")
+
+    result = kuzu_conn.execute("MATCH (n:Concept) RETURN n.id")
+    assert _node_ids(result) == {"a", "c"}
+
+    assert search_relationships(kuzu_conn, "a") == []
+    assert search_relationships(kuzu_conn, "b") == []
+    assert search_relationships(kuzu_conn, "c") == []
+
+
+def test_remove_node_and_relationships_no_node_is_noop(kuzu_conn):
+    _create_node(kuzu_conn, "a", "A", "cat")
+
+    remove_node_and_relationships(kuzu_conn, "does-not-exist")
+
+    result = kuzu_conn.execute("MATCH (n:Concept) RETURN n.id")
+    assert _node_ids(result) == {"a"}
 
 
 # --- get_full_graph -----------------------------------------------------

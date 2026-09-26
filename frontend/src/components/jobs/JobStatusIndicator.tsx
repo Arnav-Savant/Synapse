@@ -37,12 +37,12 @@ export function JobStatusIndicator({ jobId }: { jobId: string }) {
   }, [status, queryClient]);
 
   if (status === "succeeded") {
-    return <span className="text-emerald-400">done</span>;
+    return <span className="text-signal-ok">done</span>;
   }
 
   if (status === "failed") {
     return (
-      <span className="text-rose-400" title={jobQuery.data?.error ?? undefined}>
+      <span className="text-signal" title={jobQuery.data?.error ?? undefined}>
         failed — {jobQuery.data?.error}
       </span>
     );

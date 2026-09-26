@@ -128,6 +128,24 @@ def ensure_node(conn: kuzu.Connection, concept_id: str, title: str, category: st
     logger.info("concept node upserted in graph: id=%s", concept_id)
 
 
+def remove_node_and_relationships(conn: kuzu.Connection, concept_id: str) -> None:
+    """Deletes the Concept node for concept_id and every RELATES_TO edge
+    touching it, in either direction (as source or as target).
+
+    Installed kuzu (0.11.3, confirmed) supports a single `DETACH DELETE`
+    Cypher statement that removes a node together with all its incident
+    relationships (both directions) in one query — no separate
+    match-and-delete-edges-then-delete-node sequence is needed. Also
+    confirmed empirically: running `DETACH DELETE` against a concept_id with
+    no matching node is a no-op, not an error — a concept can exist in
+    Postgres without ever having been given a Kùzu node if no relationships
+    were ever proposed for it (spec §9.3), so callers must not need to
+    special-case "never had a node".
+    """
+    conn.execute("MATCH (n:Concept {id: $id}) DETACH DELETE n", {"id": concept_id})
+    logger.info("concept node and relationships removed from graph (if present): id=%s", concept_id)
+
+
 def get_graph_neighborhood(
     conn: kuzu.Connection, concept_id: str, depth: int = 1, job_id: str | None = None
 ) -> GraphNeighborhood:
