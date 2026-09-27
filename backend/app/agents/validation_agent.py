@@ -114,7 +114,11 @@ def _format_relationships_written(graph_agent_result: dict) -> str:
     )
 
 
-def build_prompt(text_agent_result: dict, graph_agent_result: dict | None = None) -> str:
+def build_prompt(
+    text_agent_result: dict,
+    graph_agent_result: dict | None = None,
+    synthesized_concept_ids: list[str] | None = None,
+) -> str:
     parts = [
         "You are the Validation Agent. You are read-only across both concept "
         "content and graph structure (`get_concept`, `get_graph_neighborhood`, "
@@ -137,6 +141,26 @@ def build_prompt(text_agent_result: dict, graph_agent_result: dict | None = None
             "--- Graph Agent did not run this round ---\n"
             "Only the Text Agent output above needs validation; no "
             "relationship edges were proposed this round."
+        )
+
+    if synthesized_concept_ids:
+        ids_line = ", ".join(repr(cid) for cid in synthesized_concept_ids)
+        parts.append(
+            "--- Synthesized concepts: a different grounding rule applies ---\n"
+            f"The following concept_id(s) were synthesized this job to fill a "
+            f"missing hierarchical-parent gap the Graph Agent flagged, not "
+            f"extracted from any source material: {ids_line}. Per this "
+            f"feature's design, a purely structural node like this has no "
+            f"source excerpt to be grounded in — it is legitimately grounded "
+            f"instead in its sibling concepts' content plus general domain "
+            f"knowledge. Do not apply the normal \"is this actually grounded "
+            f"in the source excerpt it claims to draw from\" check to these "
+            f"specific concept_ids — that check does not apply to them by "
+            f"design. You should still expect their content to be accurate "
+            f"and substantive; only the grounding *standard* is looser for "
+            f"them, not the accuracy bar. Every other check (duplication, "
+            f"scope overlap, fragmentation, relationship justification) "
+            f"still applies to them exactly as to any other concept."
         )
 
     parts.append(

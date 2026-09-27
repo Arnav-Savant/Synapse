@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 
 import type { GraphEdge, GraphNode } from "../../api/graph";
+import { CONCEPT_PANEL_MAX_WIDTH } from "../knowledge/panelLayout";
 import { Breadcrumb } from "./Breadcrumb";
 import { GRAPH_STYLESHEET } from "./cytoscapeStyle";
 import { colorForCategory } from "./domainColors";
@@ -100,7 +101,27 @@ export function GraphView({ nodes: allNodes, edges: allEdges, isPending, isError
       cy.elements().unselect();
       target.select();
       target.connectedEdges().addClass("highlighted");
-      cy.animate({ center: { eles: target }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 300 });
+
+      // A non-null selectedNodeId also means ConceptPanel is about to slide
+      // in over the right edge of this same canvas (see App.tsx) — a plain
+      // `center` would center the node behind it. Centering on the width
+      // that stays visible instead means the node lands in the middle of
+      // the space the person can actually still see.
+      const container = cy.container();
+      const containerWidth = container?.clientWidth ?? 0;
+      const containerHeight = container?.clientHeight ?? 0;
+      const panelWidth = Math.min(CONCEPT_PANEL_MAX_WIDTH, containerWidth);
+      const visibleWidth = Math.max(containerWidth - panelWidth, 0);
+
+      const zoom = Math.max(cy.zoom(), 1.2);
+      const { x, y } = target.position();
+      cy.animate(
+        {
+          pan: { x: visibleWidth / 2 - x * zoom, y: containerHeight / 2 - y * zoom },
+          zoom,
+        },
+        { duration: 300 },
+      );
     }
   }, [selectedNodeId, cytoscapeKey]);
 

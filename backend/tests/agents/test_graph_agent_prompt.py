@@ -118,3 +118,86 @@ def test_parse_output_raises_on_json_missing_required_key():
 
     with pytest.raises(GraphAgentOutputParseError):
         parse_output(result_text)
+
+
+def test_build_prompt_includes_structural_gap_instructions():
+    prompt = build_prompt(_concepts_written())
+
+    assert "structural_gaps" in prompt
+    assert "search_concepts" in prompt
+    assert "missing_parent" in prompt
+    assert "get_graph_neighborhood" in prompt
+
+
+def test_parse_output_defaults_structural_gaps_to_empty_list_when_absent():
+    payload = {"relationships_written": []}
+    result_text = json.dumps(payload)
+
+    output = parse_output(result_text)
+
+    assert output.structural_gaps == []
+
+
+def test_parse_output_raises_when_structural_gaps_is_not_a_list():
+    payload = {"relationships_written": [], "structural_gaps": {"gap_type": "missing_parent"}}
+    result_text = json.dumps(payload)
+
+    with pytest.raises(GraphAgentOutputParseError):
+        parse_output(result_text)
+
+
+def test_parse_output_raises_when_gap_entry_missing_required_key():
+    payload = {
+        "relationships_written": [],
+        "structural_gaps": [
+            {
+                "gap_type": "missing_parent",
+                "member_concept_ids": ["concept-1", "concept-2"],
+                "proposed_title": "Neural Networks",
+                # proposed_scope_hint and justification both omitted
+            }
+        ],
+    }
+    result_text = json.dumps(payload)
+
+    with pytest.raises(GraphAgentOutputParseError):
+        parse_output(result_text)
+
+
+def test_parse_output_raises_when_gap_type_is_not_missing_parent():
+    payload = {
+        "relationships_written": [],
+        "structural_gaps": [
+            {
+                "gap_type": "missing_child",
+                "member_concept_ids": ["concept-1", "concept-2"],
+                "proposed_title": "Some Child",
+                "proposed_scope_hint": "hint",
+                "justification": "justification",
+            }
+        ],
+    }
+    result_text = json.dumps(payload)
+
+    with pytest.raises(GraphAgentOutputParseError):
+        parse_output(result_text)
+
+
+def test_parse_output_extracts_structural_gaps_when_present():
+    payload = {
+        "relationships_written": [],
+        "structural_gaps": [
+            {
+                "gap_type": "missing_parent",
+                "member_concept_ids": ["concept-1", "concept-2"],
+                "proposed_title": "Neural Networks",
+                "proposed_scope_hint": "The umbrella topic covering both members.",
+                "justification": "concept-1 and concept-2 share no path to any common ancestor within 2 hops, and search_concepts for 'neural networks' returned no match.",
+            }
+        ],
+    }
+    result_text = json.dumps(payload)
+
+    output = parse_output(result_text)
+
+    assert output.structural_gaps == payload["structural_gaps"]

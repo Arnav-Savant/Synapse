@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { fetchAgentConfigs } from "../../api/agentConfig";
+import { IconButton } from "../ui/IconButton";
+import { XIcon } from "../ui/icons";
 import { AgentConfigRow } from "./AgentConfigRow";
 
 interface SettingsModalProps {
@@ -46,15 +48,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-graphite">agent settings</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="close"
-            className="font-mono text-lg text-graphite hover:text-paper"
-          >
-            ×
-          </button>
+          <h2 className="text-sm text-graphite">agent settings</h2>
+          <IconButton icon={<XIcon />} aria-label="Close" title="Close" onClick={onClose} size="md" />
         </div>
 
         {configsQuery.isPending && <p className="text-graphite">loading…</p>}

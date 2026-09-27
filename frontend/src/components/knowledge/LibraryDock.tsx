@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { GraphEdge, GraphNode } from "../../api/graph";
 import { collectCategories, filterNodes } from "../graph/filters";
 import { searchNodes } from "../graph/search";
+import { ChevronIcon } from "../ui/icons";
 import { buildTopicTree } from "./topicTree";
 import { TopicTree } from "./TopicTree";
 
@@ -61,10 +62,11 @@ export function LibraryDock({ nodes, edges, isPending, isError, selectedSlug, on
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        aria-label={collapsed ? "expand library" : "collapse library"}
-        className="flex h-9 w-full shrink-0 items-center justify-center border-b border-ink-line font-mono text-xs text-graphite hover:text-paper"
+        aria-label={collapsed ? "Expand library" : "Collapse library"}
+        title={collapsed ? "Expand library" : "Collapse library"}
+        className="flex h-10 w-full shrink-0 items-center justify-center border-b border-ink-line text-graphite transition-colors hover:bg-ink-soft hover:text-paper"
       >
-        {collapsed ? "»" : "«"}
+        <ChevronIcon direction={collapsed ? "right" : "left"} className="h-5 w-5" />
       </button>
 
       {!collapsed && (

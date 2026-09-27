@@ -25,7 +25,9 @@ from app.db.kuzu_db import get_kuzu_connection
 from app.db.models import Concept, Job, JobRound, Source
 from app.engines.base import EngineResult
 from app.engines.claude_code_engine import ClaudeCodeEngine, ClaudeCodeEngineError
+from app.mcp_server.server import AgentRole
 from app.orchestrator.graph import build_graph
+from app.orchestrator.tools import MAX_SYNTHESIZED_NODES
 from app.repositories import concept_repo, graph_repo
 
 
@@ -76,6 +78,7 @@ def _initial_state(job: Job, source: Source) -> dict:
         "round_number": 0,
         "status": "running",
         "error": None,
+        "synthesized_node_count": 0,
     }
 
 
@@ -991,3 +994,681 @@ async def test_validation_reject_spanning_both_agents_cascades_without_delta_lea
     assert final_state.get("graph_agent_critique_delta") is None
     assert final_state["retry_count"] == 1
     assert final_state["prior_validation_issues"] == first_round_issues
+
+
+# --- Task 5: Structural gap synthesis loop ---
+
+
+def _gap_flagging_relationships_output(member_ids: list[str]) -> str:
+    payload = {
+        "relationships_written": [],
+        "structural_gaps": [
+            {
+                "gap_type": "missing_parent",
+                "member_concept_ids": member_ids,
+                "proposed_title": "Neural Networks",
+                "proposed_scope_hint": "The umbrella topic covering both members.",
+                "justification": f"{member_ids[0]} and {member_ids[1]} share no common ancestor within 2 hops.",
+            }
+        ],
+    }
+    return "```json\n" + json.dumps(payload) + "\n```"
+
+
+_GAP_SYNTHESIS_PROMPT_MARKER = "invoked to synthesize a new concept"
+
+
+@pytest.mark.asyncio
+async def test_structural_gap_synthesizes_parent_and_resumes_graph_agent(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    concept_ids: dict[str, str] = {}
+    graph_agent_calls = {"count": 0}
+    text_agent_gap_prompts: list[str] = []
+    gap_synthesis_agent_roles: list[str] = []
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+
+        if invocation.agent_role == "graph_agent":
+            graph_agent_calls["count"] += 1
+            if graph_agent_calls["count"] == 1:
+                return EngineResult(
+                    is_error=False,
+                    result_text=_gap_flagging_relationships_output(
+                        [concept_ids["a"], concept_ids["b"]]
+                    ),
+                    cost_usd=0.01,
+                )
+            # Resume round: attach the two siblings to the newly synthesized parent.
+            graph_repo.ensure_node(kuzu_conn, concept_ids["a"], "Backpropagation", "neural-networks")
+            graph_repo.ensure_node(kuzu_conn, concept_ids["b"], "Gradient Descent", "neural-networks")
+            graph_repo.ensure_node(kuzu_conn, concept_ids["parent"], "Neural Networks", "neural-networks")
+            graph_repo.add_relationship(
+                kuzu_conn, source_id=concept_ids["a"], target_id=concept_ids["parent"],
+                type="subtopic-of", justification="attaching synthesized parent", job_id=invocation.job_id,
+            )
+            graph_repo.add_relationship(
+                kuzu_conn, source_id=concept_ids["b"], target_id=concept_ids["parent"],
+                type="subtopic-of", justification="attaching synthesized parent", job_id=invocation.job_id,
+            )
+            payload = {
+                "relationships_written": [
+                    {"source_id": concept_ids["a"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+                    {"source_id": concept_ids["b"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+                ],
+                "structural_gaps": [],
+            }
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+
+        # Both the real Text Agent round and the gap-synthesis round share
+        # agent_role == AgentRole.TEXT_AGENT.value (Critical fix: gap
+        # synthesis reuses Text Agent's already-seeded AgentConfig row
+        # rather than a nonexistent "text_agent_gap_synthesis" role) — they
+        # are told apart here by prompt content, exactly as the real
+        # Orchestrator has no other distinguishing signal between them at
+        # this boundary either.
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+
+        if _GAP_SYNTHESIS_PROMPT_MARKER in invocation.prompt:
+            gap_synthesis_agent_roles.append(invocation.agent_role)
+            text_agent_gap_prompts.append(invocation.prompt)
+            async with self._session_factory() as session:
+                parent = await concept_repo.create_concept(
+                    session, title="Neural Networks", category="neural-networks",
+                    body="Synthesized explanation of neural networks, grounding both children.",
+                    metadata={"origin": "gap_synthesis", "gap_member_ids": [concept_ids["a"], concept_ids["b"]]},
+                    job_id=invocation.job_id,
+                )
+            concept_ids["parent"] = parent.id
+            payload = {"concept_written": {"concept_id": parent.id, "title": "Neural Networks", "action": "created"}}
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.015)
+
+        async with self._session_factory() as session:
+            concept_a = await concept_repo.create_concept(
+                session, title="Backpropagation", category="neural-networks",
+                body="Body text about backpropagation.", metadata={}, job_id=invocation.job_id,
+            )
+            concept_b = await concept_repo.create_concept(
+                session, title="Gradient Descent", category="neural-networks",
+                body="Body text about gradient descent.", metadata={}, job_id=invocation.job_id,
+            )
+        concept_ids["a"] = concept_a.id
+        concept_ids["b"] = concept_b.id
+        structured_output = {
+            "segmentation": [
+                {"title": "Backpropagation", "scope_description": "Backprop only.", "source_excerpt_ref": "p1"},
+                {"title": "Gradient Descent", "scope_description": "GD only.", "source_excerpt_ref": "p2"},
+            ],
+            "overlap_check": {"merged_pairs": [], "notes": "no overlap"},
+            "concepts_written": [
+                {"concept_id": concept_a.id, "title": "Backpropagation", "action": "created"},
+                {"concept_id": concept_b.id, "title": "Gradient Descent", "action": "created"},
+            ],
+        }
+        return EngineResult(
+            is_error=False,
+            result_text="Report.\n\n```json\n" + json.dumps(structured_output) + "\n```",
+            cost_usd=0.02,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert final_state["synthesized_node_count"] == 1
+    assert "concept-1" not in text_agent_gap_prompts[0]  # sanity: real ids were interpolated, not placeholders
+    assert concept_ids["a"] in text_agent_gap_prompts[0]
+    assert concept_ids["b"] in text_agent_gap_prompts[0]
+
+    # Fix 1a: the newly-synthesized concept's id must be tracked on state so
+    # Validation Agent's prompt can carry its looser grounding rule.
+    assert final_state["synthesized_concept_ids"] == [concept_ids["parent"]]
+
+    # Critical fix regression coverage: the engine invocation for the
+    # gap-synthesis round must carry Text Agent's own agent_role (there is
+    # no separate "text_agent_gap_synthesis" AgentRole/AgentConfig), while
+    # the job_round trace label below stays "text_agent_gap_synthesis" —
+    # these are two distinct fields and must not be conflated.
+    assert gap_synthesis_agent_roles == [AgentRole.TEXT_AGENT.value]
+
+    parent = await concept_repo.get_concept(db_session, concept_ids["parent"])
+    assert parent.status == "committed"
+    assert parent.metadata_["origin"] == "gap_synthesis"
+
+    relationships = graph_repo.search_relationships(kuzu_conn, concept_ids["a"])
+    assert any(
+        r.target_id == concept_ids["parent"] and r.type == "subtopic-of" and r.status == "committed"
+        for r in relationships
+    )
+
+    round_result = await db_session.execute(
+        select(JobRound).where(JobRound.job_id == job.id).order_by(JobRound.round_number)
+    )
+    agent_types = [r.agent_type for r in round_result.scalars().all()]
+    assert agent_types == [
+        "text_agent", "graph_agent", "text_agent_gap_synthesis", "graph_agent", "validation_agent",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_structural_gap_cap_hit_degrades_gracefully_and_commits(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """synthesized_node_count starts already at the cap — the flagged gap
+    must be ignored (no invoke_text_agent_for_gap call at all) and the job
+    must still commit normally (spec §4: cap-hit is not a failure)."""
+    job, source = await _make_job_and_source(db_session)
+    gap_node_calls = {"count": 0}
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            return EngineResult(
+                is_error=False,
+                result_text=_gap_flagging_relationships_output(["concept-1", "concept-2"]),
+                cost_usd=0.01,
+            )
+        # Gap synthesis reuses agent_role == AgentRole.TEXT_AGENT.value (no
+        # separate "text_agent_gap_synthesis" role exists), so the tripwire
+        # for "gap synthesis must not run" has to key off prompt content,
+        # not agent_role, to still catch a regression here.
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_SYNTHESIS_PROMPT_MARKER in invocation.prompt:
+            gap_node_calls["count"] += 1
+            pytest.fail("gap synthesis must not run once the cap is already hit")
+        async with self._session_factory() as session:
+            await concept_repo.create_concept(
+                session, title="Concept A", category="general", body="Body A.",
+                metadata={}, job_id=invocation.job_id,
+            )
+        return EngineResult(is_error=False, result_text=_success_result_text("concept-1", "concept-2"), cost_usd=0.02)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    initial_state = {**_initial_state(job, source), "synthesized_node_count": MAX_SYNTHESIZED_NODES}
+    final_state = await compiled.ainvoke(initial_state)
+
+    assert final_state["status"] == "succeeded"
+    assert gap_node_calls["count"] == 0
+    assert final_state["synthesized_node_count"] == MAX_SYNTHESIZED_NODES
+
+
+# --- Final-review fix wave (2026-09-27) ---
+
+
+@pytest.mark.asyncio
+async def test_graph_agent_relationships_accumulate_across_gap_resume_rounds(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """Fix 1b: invoke_graph_agent must ACCUMULATE relationships_written
+    across rounds within a job rather than replacing it wholesale — a real
+    edge proposed in the gap-flagging round must still be visible to
+    Validation Agent alongside the resume round's edges, not silently
+    dropped from what the validator sees (though it stayed staged in Kùzu
+    and would otherwise get committed unreviewed)."""
+    job, source = await _make_job_and_source(db_session)
+    concept_ids: dict[str, str] = {}
+    graph_agent_calls = {"count": 0}
+    validation_prompts: list[str] = []
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_prompts.append(invocation.prompt)
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+
+        if invocation.agent_role == "graph_agent":
+            graph_agent_calls["count"] += 1
+            if graph_agent_calls["count"] == 1:
+                # Round 1: propose one real edge between the two siblings
+                # AND flag the missing-parent gap in the same round.
+                graph_repo.ensure_node(kuzu_conn, concept_ids["a"], "Backpropagation", "neural-networks")
+                graph_repo.ensure_node(kuzu_conn, concept_ids["b"], "Gradient Descent", "neural-networks")
+                graph_repo.add_relationship(
+                    kuzu_conn, source_id=concept_ids["a"], target_id=concept_ids["b"],
+                    type="related-to", justification="round 1 sibling relation", job_id=invocation.job_id,
+                )
+                payload = {
+                    "relationships_written": [
+                        {"source_id": concept_ids["a"], "target_id": concept_ids["b"], "type": "related-to", "action": "created"}
+                    ],
+                    "structural_gaps": [
+                        {
+                            "gap_type": "missing_parent",
+                            "member_concept_ids": [concept_ids["a"], concept_ids["b"]],
+                            "proposed_title": "Neural Networks",
+                            "proposed_scope_hint": "The umbrella topic covering both members.",
+                            "justification": f"{concept_ids['a']} and {concept_ids['b']} share no common ancestor within 2 hops.",
+                        }
+                    ],
+                }
+                return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+
+            # Round 2 (resume): attach the two siblings to the newly
+            # synthesized parent.
+            graph_repo.ensure_node(kuzu_conn, concept_ids["parent"], "Neural Networks", "neural-networks")
+            graph_repo.add_relationship(
+                kuzu_conn, source_id=concept_ids["a"], target_id=concept_ids["parent"],
+                type="subtopic-of", justification="attaching synthesized parent", job_id=invocation.job_id,
+            )
+            graph_repo.add_relationship(
+                kuzu_conn, source_id=concept_ids["b"], target_id=concept_ids["parent"],
+                type="subtopic-of", justification="attaching synthesized parent", job_id=invocation.job_id,
+            )
+            payload = {
+                "relationships_written": [
+                    {"source_id": concept_ids["a"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+                    {"source_id": concept_ids["b"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+                ],
+                "structural_gaps": [],
+            }
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_SYNTHESIS_PROMPT_MARKER in invocation.prompt:
+            async with self._session_factory() as session:
+                parent = await concept_repo.create_concept(
+                    session, title="Neural Networks", category="neural-networks",
+                    body="Synthesized explanation of neural networks, grounding both children.",
+                    metadata={"origin": "gap_synthesis", "gap_member_ids": [concept_ids["a"], concept_ids["b"]]},
+                    job_id=invocation.job_id,
+                )
+            concept_ids["parent"] = parent.id
+            payload = {"concept_written": {"concept_id": parent.id, "title": "Neural Networks", "action": "created"}}
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.015)
+
+        async with self._session_factory() as session:
+            concept_a = await concept_repo.create_concept(
+                session, title="Backpropagation", category="neural-networks",
+                body="Body text about backpropagation.", metadata={}, job_id=invocation.job_id,
+            )
+            concept_b = await concept_repo.create_concept(
+                session, title="Gradient Descent", category="neural-networks",
+                body="Body text about gradient descent.", metadata={}, job_id=invocation.job_id,
+            )
+        concept_ids["a"] = concept_a.id
+        concept_ids["b"] = concept_b.id
+        structured_output = {
+            "segmentation": [
+                {"title": "Backpropagation", "scope_description": "Backprop only.", "source_excerpt_ref": "p1"},
+                {"title": "Gradient Descent", "scope_description": "GD only.", "source_excerpt_ref": "p2"},
+            ],
+            "overlap_check": {"merged_pairs": [], "notes": "no overlap"},
+            "concepts_written": [
+                {"concept_id": concept_a.id, "title": "Backpropagation", "action": "created"},
+                {"concept_id": concept_b.id, "title": "Gradient Descent", "action": "created"},
+            ],
+        }
+        return EngineResult(
+            is_error=False,
+            result_text="Report.\n\n```json\n" + json.dumps(structured_output) + "\n```",
+            cost_usd=0.02,
+        )
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert len(validation_prompts) == 1
+    # Round 1's edge (related-to) and round 2's two edges (subtopic-of) must
+    # BOTH be visible to Validation Agent — not just the latest round's.
+    assert "related-to" in validation_prompts[0]
+    assert "subtopic-of" in validation_prompts[0]
+    assert final_state["graph_agent_result"]["relationships_written"] == [
+        {"source_id": concept_ids["a"], "target_id": concept_ids["b"], "type": "related-to", "action": "created"},
+        {"source_id": concept_ids["a"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+        {"source_id": concept_ids["b"], "target_id": concept_ids["parent"], "type": "subtopic-of", "action": "created"},
+    ]
+
+    # Fix 4: structural_gaps must show up in the graph_agent job_round trace.
+    round_result = await db_session.execute(
+        select(JobRound).where(JobRound.job_id == job.id, JobRound.agent_type == "graph_agent").order_by(JobRound.round_number)
+    )
+    graph_rounds = round_result.scalars().all()
+    assert len(graph_rounds) == 2
+    assert graph_rounds[0].structured_output_json["structural_gaps"][0]["gap_type"] == "missing_parent"
+    assert graph_rounds[1].structured_output_json["structural_gaps"] == []
+
+
+@pytest.mark.asyncio
+async def test_malformed_structural_gap_entry_routes_to_rollback_as_failed(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """Fix 2: a malformed structural_gaps entry (missing a required key, or
+    a gap_type other than 'missing_parent') must raise
+    GraphAgentOutputParseError from parse_output rather than crash
+    uncaught, and the job must correctly route to rollback (status becomes
+    'failed', all pending rows removed) — this is the gap-node
+    parse-failure test the plan claimed existed but didn't."""
+    job, source = await _make_job_and_source(db_session)
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "graph_agent":
+            malformed_payload = {
+                "relationships_written": [],
+                "structural_gaps": [
+                    {
+                        "gap_type": "missing_child",  # unsupported per spec §3
+                        "member_concept_ids": ["concept-1", "concept-2"],
+                        "proposed_title": "Neural Networks",
+                        "proposed_scope_hint": "hint",
+                        "justification": "justification",
+                    }
+                ],
+            }
+            return EngineResult(
+                is_error=False,
+                result_text="```json\n" + json.dumps(malformed_payload) + "\n```",
+                cost_usd=0.01,
+            )
+        assert invocation.agent_role == "text_agent"
+        async with self._session_factory() as session:
+            await concept_repo.create_concept(
+                session, title="Concept A", category="general", body="Body A.",
+                metadata={}, job_id=invocation.job_id,
+            )
+        return EngineResult(is_error=False, result_text=_success_result_text("concept-1", "concept-2"), cost_usd=0.02)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "failed"
+    assert "missing_child" in final_state["error"] or "missing_parent" in final_state["error"]
+
+    result = await db_session.execute(select(Concept).where(Concept.job_id == job.id))
+    assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_on_two_gap_synthesized_concepts_reworks_both(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """Fix 3: a reject round flagging two DISTINCT gap-synthesized concepts
+    must rework both, not just the first — two text_agent_gap_synthesis
+    job_rounds in that resume, both concepts' bodies updated."""
+    job, source = await _make_job_and_source(db_session)
+    concept_one = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="wrong body one",
+        metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]}, job_id=job.id,
+    )
+    concept_two = await concept_repo.create_concept(
+        db_session, title="Optimization", category="general", body="wrong body two",
+        metadata={"origin": "gap_synthesis", "gap_member_ids": ["c", "d"]}, job_id=job.id,
+    )
+    await db_session.commit()
+    validation_calls = {"count": 0}
+    rework_prompts: list[str] = []
+    issues = [
+        {
+            "category": "ungrounded_content",
+            "severity": "high",
+            "target_id": concept_one.id,
+            "description": "concept one invents a fact",
+        },
+        {
+            "category": "ungrounded_content",
+            "severity": "high",
+            "target_id": concept_two.id,
+            "description": "concept two invents a different fact",
+        },
+    ]
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(is_error=False, result_text=_reject_validation_result_text(issues), cost_usd=0.0)
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            return EngineResult(is_error=False, result_text=_no_gap_relationships_output(), cost_usd=0.0)
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_REWORK_PROMPT_MARKER in invocation.prompt:
+            rework_prompts.append(invocation.prompt)
+            if concept_one.id in invocation.prompt:
+                target, new_body = concept_one, "repaired-body-one"
+            else:
+                assert concept_two.id in invocation.prompt
+                target, new_body = concept_two, "repaired-body-two"
+            async with self._session_factory() as session:
+                await concept_repo.update_concept(
+                    session, concept_id=target.id, job_id=invocation.job_id,
+                    body=new_body, metadata={"origin": "gap_synthesis"},
+                )
+            payload = {"concept_written": {"concept_id": target.id, "title": target.title, "action": "updated"}}
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert len(rework_prompts) == 2  # both flagged concepts got their own rework invocation
+
+    reworked_one = await concept_repo.get_concept(db_session, concept_one.id)
+    reworked_two = await concept_repo.get_concept(db_session, concept_two.id)
+    assert reworked_one.body == "repaired-body-one"
+    assert reworked_two.body == "repaired-body-two"
+
+    round_result = await db_session.execute(
+        select(JobRound).where(JobRound.job_id == job.id, JobRound.agent_type == "text_agent_gap_synthesis")
+        .order_by(JobRound.round_number)
+    )
+    gap_rounds = round_result.scalars().all()
+    assert len(gap_rounds) == 2
+
+
+# --- Task 6: origin-aware critique routing for gap-synthesized concepts ---
+
+
+def _no_gap_relationships_output() -> str:
+    return '```json\n{"relationships_written": []}\n```'
+
+
+# Distinguishes a rework-mode gap-synthesis invocation from a normal Text
+# Agent round by prompt content, same pattern as
+# `_GAP_SYNTHESIS_PROMPT_MARKER` above — both share
+# `agent_role == AgentRole.TEXT_AGENT.value` (no separate
+# "text_agent_gap_synthesis" AgentRole/AgentConfig exists), so agent_role
+# alone can't tell them apart.
+_GAP_REWORK_PROMPT_MARKER = "invoked to rework a concept"
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_on_gap_synthesized_concept_routes_to_rework(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    gap_concept = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="wrong body",
+        metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]}, job_id=job.id,
+    )
+    await db_session.commit()
+    validation_calls = {"count": 0}
+    gap_synthesis_prompts: list[str] = []
+    issue = {
+        "category": "ungrounded_content",
+        "severity": "high",
+        "target_id": gap_concept.id,
+        "description": "invents a fact the members don't support",
+    }
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(is_error=False, result_text=_reject_validation_result_text([issue]), cost_usd=0.0)
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            return EngineResult(is_error=False, result_text=_no_gap_relationships_output(), cost_usd=0.0)
+        # Both the initial Text Agent round and the gap-rework round share
+        # agent_role == AgentRole.TEXT_AGENT.value — told apart here by
+        # prompt content, same as the real Orchestrator has no other
+        # distinguishing signal between them at this boundary either.
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_REWORK_PROMPT_MARKER in invocation.prompt:
+            gap_synthesis_prompts.append(invocation.prompt)
+            async with self._session_factory() as session:
+                await concept_repo.update_concept(
+                    session, concept_id=gap_concept.id, job_id=invocation.job_id,
+                    body="repaired-body-xyz", metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]},
+                )
+            payload = {"concept_written": {"concept_id": gap_concept.id, "title": "Neural Networks", "action": "updated"}}
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    # `gap_concept` already exists in the DB with `origin: gap_synthesis` before
+    # the job starts; the job's own first Text/Graph Agent rounds don't touch
+    # it (they're no-ops here), so the first Validation Agent round rejects
+    # against it and this test asserts the rejection is routed to rework.
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert len(gap_synthesis_prompts) == 1
+    # Sanity: the prompt is built (and the engine invoked) before the fake
+    # engine's fix is applied, so it can never contain the fix's own literal
+    # content — using a body string distinct from the real prompt template's
+    # own static wording (which itself says "...update_concept with the
+    # corrected body...") so this check isn't a false positive against that
+    # boilerplate.
+    assert "repaired-body-xyz" not in gap_synthesis_prompts[0]
+    assert "invents a fact" in gap_synthesis_prompts[0]
+    assert gap_concept.id in gap_synthesis_prompts[0]
+
+    reworked = await concept_repo.get_concept(db_session, gap_concept.id)
+    assert reworked.body == "repaired-body-xyz"
+    assert reworked.metadata_["origin"] == "gap_synthesis"  # not wiped by the rework
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_on_mixed_origin_targets_falls_back_to_normal_text_agent(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    job, source = await _make_job_and_source(db_session)
+    gap_concept = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="body",
+        metadata={"origin": "gap_synthesis"}, job_id=job.id,
+    )
+    normal_concept = await concept_repo.create_concept(
+        db_session, title="Backpropagation", category="general", body="body",
+        metadata={}, job_id=job.id,
+    )
+    await db_session.commit()
+    validation_calls = {"count": 0}
+    text_agent_calls = {"count": 0}
+    gap_synthesis_calls = {"count": 0}
+    issues = [
+        {"category": "ungrounded_content", "severity": "high", "target_id": gap_concept.id, "description": "d1"},
+        {"category": "ungrounded_content", "severity": "high", "target_id": normal_concept.id, "description": "d2"},
+    ]
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(is_error=False, result_text=_reject_validation_result_text(issues), cost_usd=0.0)
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            return EngineResult(is_error=False, result_text=_no_gap_relationships_output(), cost_usd=0.0)
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_REWORK_PROMPT_MARKER in invocation.prompt:
+            gap_synthesis_calls["count"] += 1
+            pytest.fail("mixed-origin rejection must fall back to the normal text_agent path")
+        text_agent_calls["count"] += 1
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    assert gap_synthesis_calls["count"] == 0
+    assert text_agent_calls["count"] == 2  # initial round + one normal-path retry
+
+
+@pytest.mark.asyncio
+async def test_validation_reject_with_gap_rework_and_graph_agent_issue_preserves_graph_delta(
+    db_session: AsyncSession, session_factory, kuzu_conn: kuzu.Connection, monkeypatch
+):
+    """Regression coverage: invoke_validation_agent can populate BOTH
+    gap_rework_target_concept_ids (all text_agent-categorized issues target a
+    gap-synthesized concept) AND graph_agent_critique_delta (a separate
+    graph_agent-categorized issue) in the SAME reject round — these two are
+    independent, not mutually exclusive. _route_after_validation_agent picks
+    the rework path first, so invoke_text_agent_for_gap's rework branch runs
+    before invoke_graph_agent's resumed round — its return must not wipe the
+    graph_agent_critique_delta that invoke_validation_agent already set."""
+    job, source = await _make_job_and_source(db_session)
+    gap_concept = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="wrong body",
+        metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]}, job_id=job.id,
+    )
+    await db_session.commit()
+    validation_calls = {"count": 0}
+    graph_agent_prompts: list[str] = []
+    text_issue = {
+        "category": "ungrounded_content",
+        "severity": "high",
+        "target_id": gap_concept.id,
+        "description": "invents a fact the members don't support",
+    }
+    graph_issue = {
+        "category": "unsupported_justification",
+        "severity": "high",
+        "target_id": "edge-1",
+        "description": "the justification doesn't establish the claim",
+    }
+
+    async def fake_invoke(self, invocation):
+        if invocation.agent_role == "validation_agent":
+            validation_calls["count"] += 1
+            if validation_calls["count"] == 1:
+                return EngineResult(
+                    is_error=False,
+                    result_text=_reject_validation_result_text([text_issue, graph_issue]),
+                    cost_usd=0.0,
+                )
+            return EngineResult(is_error=False, result_text=_PASS_VALIDATION_RESULT_TEXT, cost_usd=0.0)
+        if invocation.agent_role == "graph_agent":
+            graph_agent_prompts.append(invocation.prompt)
+            return EngineResult(is_error=False, result_text=_no_gap_relationships_output(), cost_usd=0.0)
+        assert invocation.agent_role == AgentRole.TEXT_AGENT.value
+        if _GAP_REWORK_PROMPT_MARKER in invocation.prompt:
+            async with self._session_factory() as session:
+                await concept_repo.update_concept(
+                    session, concept_id=gap_concept.id, job_id=invocation.job_id,
+                    body="repaired-body-xyz", metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]},
+                )
+            payload = {"concept_written": {"concept_id": gap_concept.id, "title": "Neural Networks", "action": "updated"}}
+            return EngineResult(is_error=False, result_text="```json\n" + json.dumps(payload) + "\n```", cost_usd=0.01)
+        return EngineResult(is_error=False, result_text=_no_op_text_agent_result_text(), cost_usd=0.01)
+
+    monkeypatch.setattr(ClaudeCodeEngine, "invoke", fake_invoke)
+
+    compiled = build_graph(session_factory, kuzu_conn)
+    final_state = await compiled.ainvoke(_initial_state(job, source))
+
+    assert final_state["status"] == "succeeded"
+    # The graph_agent_critique_delta from round 1's rejection must have
+    # survived the rework branch's return (which only clears its own
+    # gap_rework_* fields) and reached invoke_graph_agent's resumed-round
+    # prompt.
+    assert len(graph_agent_prompts) == 1
+    assert "unsupported_justification" in graph_agent_prompts[0]
+    assert "edge-1" in graph_agent_prompts[0]
+    assert final_state.get("graph_agent_critique_delta") is None  # cleared normally by invoke_graph_agent's own success path

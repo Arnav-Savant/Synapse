@@ -98,7 +98,7 @@ TOOL_REGISTRY: dict[AgentRole, tuple[str, ...]] = {
     AgentRole.TEXT_AGENT: ("read_source", "search_concepts", "get_concept", "create_concept", "update_concept"),
     AgentRole.GRAPH_AGENT: (
         "get_graph_neighborhood", "search_relationships", "get_concept_metadata",
-        "add_relationship", "update_relationship", "remove_relationship",
+        "search_concepts", "add_relationship", "update_relationship", "remove_relationship",
     ),
     AgentRole.VALIDATION_AGENT: ("get_concept", "get_graph_neighborhood", "search_concepts"),  # no writes, ever
     AgentRole.CHAT: ("search_concepts", "get_concept", "get_graph_neighborhood"),

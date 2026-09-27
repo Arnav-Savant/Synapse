@@ -10,13 +10,17 @@ from app.core.config import get_server_config
 from app.db.kuzu_db import get_kuzu_connection
 from app.db.models import Concept, Job, Source
 from app.orchestrator.tools import (
+    MAX_SYNTHESIZED_NODES,
     MAX_VALIDATION_RETRIES,
+    all_issue_targets_are_gap_synthesized,
     commit_job,
     get_source_signals,
     has_no_progress,
     rollback_job,
     should_run_graph_agent,
+    should_synthesize_gap_node,
 )
+from app.repositories import concept_repo
 
 
 @pytest.fixture
@@ -314,3 +318,79 @@ def test_has_no_progress_true_when_one_persists_alongside_a_brand_new_issue():
     prior = [_issue("ungrounded_content", "c1")]
     this_round = [_issue("ungrounded_content", "c1"), _issue("scope_overlap", "c2")]
     assert has_no_progress(this_round, prior) is True
+
+
+# --- should_synthesize_gap_node ------------------------------------------------
+
+
+def test_should_synthesize_gap_node_true_when_gaps_present_and_cap_open():
+    result = {"relationships_written": [], "structural_gaps": [{"gap_type": "missing_parent"}]}
+    assert should_synthesize_gap_node(result, synthesized_node_count=0) is True
+
+
+def test_should_synthesize_gap_node_false_when_no_gaps():
+    result = {"relationships_written": [], "structural_gaps": []}
+    assert should_synthesize_gap_node(result, synthesized_node_count=0) is False
+
+
+def test_should_synthesize_gap_node_false_when_cap_hit():
+    result = {"relationships_written": [], "structural_gaps": [{"gap_type": "missing_parent"}]}
+    assert should_synthesize_gap_node(result, synthesized_node_count=MAX_SYNTHESIZED_NODES) is False
+
+
+def test_should_synthesize_gap_node_handles_missing_key_as_no_gaps():
+    result = {"relationships_written": []}
+    assert should_synthesize_gap_node(result, synthesized_node_count=0) is False
+
+
+# --- all_issue_targets_are_gap_synthesized -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_all_issue_targets_are_gap_synthesized_true(db_session: AsyncSession):
+    await _make_job(db_session, "job-1")
+    concept = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="body",
+        metadata={"origin": "gap_synthesis", "gap_member_ids": ["a", "b"]}, job_id="job-1",
+    )
+    issues = [{"category": "ungrounded_content", "target_id": concept.id}]
+
+    assert await all_issue_targets_are_gap_synthesized(db_session, issues) is True
+
+
+@pytest.mark.asyncio
+async def test_all_issue_targets_are_gap_synthesized_false_for_normal_concept(db_session: AsyncSession):
+    await _make_job(db_session, "job-1")
+    concept = await concept_repo.create_concept(
+        db_session, title="Backpropagation", category="general", body="body",
+        metadata={}, job_id="job-1",
+    )
+    issues = [{"category": "ungrounded_content", "target_id": concept.id}]
+
+    assert await all_issue_targets_are_gap_synthesized(db_session, issues) is False
+
+
+@pytest.mark.asyncio
+async def test_all_issue_targets_are_gap_synthesized_false_when_mixed(db_session: AsyncSession):
+    await _make_job(db_session, "job-1")
+    gap_concept = await concept_repo.create_concept(
+        db_session, title="Neural Networks", category="general", body="body",
+        metadata={"origin": "gap_synthesis"}, job_id="job-1",
+    )
+    normal_concept = await concept_repo.create_concept(
+        db_session, title="Backpropagation", category="general", body="body",
+        metadata={}, job_id="job-1",
+    )
+    issues = [
+        {"category": "ungrounded_content", "target_id": gap_concept.id},
+        {"category": "ungrounded_content", "target_id": normal_concept.id},
+    ]
+
+    assert await all_issue_targets_are_gap_synthesized(db_session, issues) is False
+
+
+@pytest.mark.asyncio
+async def test_all_issue_targets_are_gap_synthesized_false_when_target_not_found(db_session: AsyncSession):
+    issues = [{"category": "ungrounded_content", "target_id": "does-not-exist"}]
+
+    assert await all_issue_targets_are_gap_synthesized(db_session, issues) is False

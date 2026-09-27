@@ -103,6 +103,12 @@ async def test_tool_registration_matches_registry(role, kuzu_conn):
     assert {tool.name for tool in tools} == set(TOOL_REGISTRY[role])
 
 
+def test_graph_agent_tool_registry_includes_search_concepts():
+    from app.mcp_server.server import TOOL_REGISTRY, AgentRole
+
+    assert "search_concepts" in TOOL_REGISTRY[AgentRole.GRAPH_AGENT]
+
+
 async def test_validation_agent_has_no_write_tools(kuzu_conn):
     server = SynapseMcpServer(AgentRole.VALIDATION_AGENT, job_id="job-scope", kuzu_conn=kuzu_conn)
 

@@ -55,6 +55,34 @@ def test_build_prompt_with_graph_agent_result_includes_relationships_written():
     assert "related-to" in prompt
 
 
+def test_build_prompt_omits_synthesized_concept_section_when_none_given():
+    prompt = build_prompt(_text_agent_result())
+
+    assert "Synthesized concepts" not in prompt
+
+    prompt_with_empty_list = build_prompt(_text_agent_result(), synthesized_concept_ids=[])
+
+    assert "Synthesized concepts" not in prompt_with_empty_list
+
+
+def test_build_prompt_includes_synthesized_concept_section_with_looser_grounding_rule():
+    prompt = build_prompt(
+        _text_agent_result(),
+        graph_agent_result=_graph_agent_result(),
+        synthesized_concept_ids=["concept-9"],
+    )
+
+    assert "Synthesized concepts" in prompt
+    assert "concept-9" in prompt
+    assert "missing hierarchical-parent gap" in prompt
+    assert "sibling concepts" in prompt.lower()
+    assert "general domain" in prompt.lower()
+    # It appears after both specialists' output sections and before the
+    # generic "What to check" section.
+    assert prompt.index("Graph Agent output this round") < prompt.index("Synthesized concepts")
+    assert prompt.index("Synthesized concepts") < prompt.index("What to check")
+
+
 def test_build_prompt_includes_precision_over_recall_instruction():
     prompt = build_prompt(_text_agent_result())
 

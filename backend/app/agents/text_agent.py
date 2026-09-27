@@ -124,3 +124,127 @@ def parse_output(result_text: str) -> TextAgentOutput:
         concepts_written=data["concepts_written"],
         raw_result_text=result_text,
     )
+
+
+class GapSynthesisOutputParseError(ValueError):
+    """The gap-synthesis invocation's result_text didn't contain a
+    parseable structured output block."""
+
+
+@dataclass(frozen=True)
+class GapSynthesisOutput:
+    concept_written: dict  # {"concept_id": "...", "title": "...", "action": "created"|"updated"}
+    raw_result_text: str
+
+
+_GAP_SYNTHESIS_OUTPUT_SHAPE = (
+    '{"concept_written": {"concept_id": "...", "title": "...", "action": "created"}}'
+)
+_GAP_SYNTHESIS_REQUIRED_KEYS = ("concept_written",)
+_REQUIRED_CONCEPT_WRITTEN_KEYS = ("concept_id", "title", "action")
+
+
+def build_gap_synthesis_prompt(
+    *,
+    member_concept_ids: list[str] | None = None,
+    proposed_title: str | None = None,
+    proposed_scope_hint: str | None = None,
+    justification: str | None = None,
+    rework_target_concept_id: str | None = None,
+    critique_delta: str | None = None,
+) -> str:
+    """Two mutually exclusive modes (spec §6/§7):
+    - create: member_concept_ids + proposed_title + proposed_scope_hint +
+      justification, all required together — synthesizes a brand-new
+      concept to fill a Graph Agent-flagged missing-parent gap.
+    - rework: rework_target_concept_id + critique_delta — fixes a concept
+      an earlier gap-synthesis round already created, per Validation
+      Agent's rejection.
+    """
+    if rework_target_concept_id is not None and critique_delta is not None:
+        parts = [
+            "You are the Text/Knowledge Agent, invoked to rework a concept "
+            "you (or an earlier round) synthesized to fill a missing-parent "
+            "structural gap — this is not a source-decomposition round, "
+            "there is no source material here.",
+            f"Concept to rework: concept_id={rework_target_concept_id!r}. "
+            "Call `get_concept` on it first to read its current body and "
+            "metadata.",
+            "Validation Agent rejected the previous round with the "
+            f"following critique:\n{critique_delta}",
+            "--- Mandatory metadata preservation ---\n"
+            "`update_concept`'s `metadata` argument fully replaces the "
+            "concept's metadata — it does not merge. The metadata you read "
+            "via `get_concept` already contains `origin: \"gap_synthesis\"` "
+            "and `gap_member_ids` — you must pass that same metadata dict "
+            "back unchanged in your `update_concept` call alongside the "
+            "corrected `body`. Losing these fields on this concept is a "
+            "silent data-loss bug, not a cosmetic one.",
+            "Fix the issue the critique describes, then call `update_concept` "
+            "with the corrected body and the preserved metadata.",
+            "--- Output ---\n"
+            "End your final response with a fenced JSON block reporting "
+            "what you did, in exactly this shape:\n"
+            f"```json\n{_GAP_SYNTHESIS_OUTPUT_SHAPE}\n```\n"
+            '`action` must be `"updated"`. This JSON block must be the '
+            "last thing in your response.",
+        ]
+        return "\n\n".join(parts)
+
+    if member_concept_ids is None or proposed_title is None or proposed_scope_hint is None or justification is None:
+        raise ValueError(
+            "build_gap_synthesis_prompt requires either rework_target_concept_id "
+            "(rework mode) or all of member_concept_ids/proposed_title/"
+            "proposed_scope_hint/justification (create mode)"
+        )
+
+    member_ids_line = ", ".join(repr(cid) for cid in member_concept_ids)
+    parts = [
+        "You are the Text/Knowledge Agent, invoked to synthesize a new "
+        "concept the Graph Agent flagged as a missing common parent for "
+        "existing sibling concepts — this is not a source-decomposition "
+        "round, there is no source material here.",
+        f"Sibling member concept_ids: {member_ids_line}. Call `get_concept` "
+        "on every one of them first — this is how you get the content to "
+        "ground the new concept in. Do not skip any.",
+        f"Proposed title: {proposed_title!r}\n"
+        f"Proposed scope: {proposed_scope_hint!r}\n"
+        f"Graph Agent's justification for why this parent is needed: "
+        f"{justification!r}",
+        "--- Grounding rule ---\n"
+        "The source material never discussed this parent topic directly — "
+        "if it had, it would already exist as its own concept. Synthesize "
+        "the new concept's content from what you just read in the sibling "
+        "concepts' bodies, plus your own general domain knowledge of the "
+        "topic. This is looser than the normal per-topic synthesis rule "
+        "(which grounds only in an attributed source excerpt) because "
+        "there is no excerpt for a purely structural node — write a real, "
+        "detailed explanatory concept, not a thin stub.",
+        "--- Output ---\n"
+        "Write the new concept via `create_concept`, with "
+        '`metadata={"origin": "gap_synthesis", "gap_member_ids": [<the '
+        "sibling concept_ids above>]}`. Then end your final response with "
+        "a fenced JSON block reporting what you did, in exactly this "
+        "shape:\n"
+        f"```json\n{_GAP_SYNTHESIS_OUTPUT_SHAPE}\n```\n"
+        '`action` must be `"created"`. This JSON block must be the last '
+        "thing in your response.",
+    ]
+    return "\n\n".join(parts)
+
+
+def parse_gap_synthesis_output(result_text: str) -> GapSynthesisOutput:
+    data = extract_json_object(result_text, _GAP_SYNTHESIS_REQUIRED_KEYS, GapSynthesisOutputParseError)
+
+    concept_written = data["concept_written"]
+    if not isinstance(concept_written, dict):
+        raise GapSynthesisOutputParseError(
+            f"concept_written must be an object, got {type(concept_written).__name__}: {concept_written!r}"
+        )
+    missing_keys = [key for key in _REQUIRED_CONCEPT_WRITTEN_KEYS if key not in concept_written]
+    if missing_keys:
+        raise GapSynthesisOutputParseError(
+            f"concept_written missing required key(s) {missing_keys}: {concept_written!r}"
+        )
+
+    return GapSynthesisOutput(concept_written=concept_written, raw_result_text=result_text)

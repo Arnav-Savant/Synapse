@@ -16,3 +16,7 @@ class OrchestratorState(TypedDict):
     graph_agent_critique_delta: str | None
     prior_validation_issues: list[dict] | None  # the raw `issues` list from the last *rejected* validation round, for the next round's no-progress comparison
     retry_count: int
+    synthesized_node_count: int  # default 0; incremented only in invoke_text_agent_for_gap on a confirmed create (spec §4)
+    synthesized_concept_ids: list[str]  # default []; concept_ids created (not reworked) by invoke_text_agent_for_gap's create-mode branch, across the whole job
+    gap_rework_target_concept_ids: list[str] | None  # distinct target_ids across this reject round's text_agent-categorized issues, when all target gap-synthesized concepts (at most MAX_SYNTHESIZED_NODES)
+    gap_rework_critique_delta: dict[str, str] | None  # target_id -> that target's own formatted critique text (not the other target's)

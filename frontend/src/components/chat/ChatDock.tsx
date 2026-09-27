@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { IconButton } from "../ui/IconButton";
+import { ChatIcon, XIcon } from "../ui/icons";
 import { ChatPanel } from "./ChatPanel";
 
 interface ChatDockProps {
@@ -41,27 +43,24 @@ export function ChatDock({ contextSlug, onClearContext }: ChatDockProps) {
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        aria-label="open chat"
-        className="fixed bottom-4 right-4 z-30 flex items-center gap-2 rounded-sm border border-ink-line bg-ink-soft px-3 py-1.5 font-mono text-xs text-graphite shadow-[0_8px_24px_-8px_rgba(0,0,0,0.6)] hover:text-paper"
+        aria-label="Open chat"
+        className="fixed bottom-5 right-5 z-30 flex items-center gap-2.5 rounded-sm border border-ink-line bg-ink-soft px-4 py-3 font-mono text-sm text-graphite shadow-[0_8px_24px_-8px_rgba(0,0,0,0.6)] transition-colors hover:border-spark-dim hover:text-paper"
       >
-        {contextSlug && <span className="h-1.5 w-1.5 rounded-full bg-spark" />}
+        <ChatIcon className="h-5 w-5" />
         chat
+        {contextSlug && <span className="h-2 w-2 rounded-full bg-spark" />}
       </button>
     );
   }
 
   return (
     <div className="fixed bottom-4 right-4 z-30 flex max-h-[80vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col border border-ink-line bg-ink-soft shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
-      <div className="flex shrink-0 items-center justify-between border-b border-ink-line px-3 py-2">
-        <span className="font-mono text-xs text-graphite">chat</span>
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          aria-label="collapse chat"
-          className="font-mono text-sm text-graphite hover:text-paper"
-        >
-          ×
-        </button>
+      <div className="flex shrink-0 items-center justify-between border-b border-ink-line py-1.5 pl-3 pr-1.5">
+        <span className="flex items-center gap-2 font-mono text-sm text-graphite">
+          <ChatIcon className="h-4 w-4" />
+          chat
+        </span>
+        <IconButton icon={<XIcon />} aria-label="Collapse chat" title="Collapse chat" onClick={() => setExpanded(false)} size="md" />
       </div>
       <div className="overflow-y-auto p-3">
         <ChatPanel contextSlug={contextSlug} onClearContext={onClearContext} />

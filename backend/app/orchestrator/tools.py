@@ -19,6 +19,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Concept
+from app.repositories import concept_repo
 from app.repositories.concept_repo import list_committed_concepts
 from app.repositories.source_record_repo import read_source
 
@@ -31,6 +32,11 @@ logger = logging.getLogger(__name__)
 # no-progress check." The cap applies independently of no-progress
 # escalation — either condition terminates the loop.
 MAX_VALIDATION_RETRIES = 3
+
+# Spec §4: a hard, code-enforced count — never a depth heuristic, never
+# left to the model's own restraint. Hitting this cap is a normal outcome
+# (§4), not a failure like MAX_VALIDATION_RETRIES.
+MAX_SYNTHESIZED_NODES = 2
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,15 @@ def should_run_graph_agent(text_output: "TextAgentOutput") -> bool:
     return len(text_output.concepts_written) > 0
 
 
+def should_synthesize_gap_node(graph_agent_result: dict, synthesized_node_count: int) -> bool:
+    """Spec §4: enter the gap-synthesis loop only if Graph Agent actually
+    flagged a gap this round AND the per-job synthesis budget isn't spent.
+    `graph_agent_result` is the dict-shaped GraphAgentOutput already stored
+    on OrchestratorState (via dataclasses.asdict)."""
+    gaps = graph_agent_result.get("structural_gaps") or []
+    return bool(gaps) and synthesized_node_count < MAX_SYNTHESIZED_NODES
+
+
 def has_no_progress(this_round_issues: list[dict], prior_issues: list[dict] | None) -> bool:
     """Spec §5.2 step 4: "Orchestrator compares this round's critique to the
     prior round's. If the same issue (same category and target) was flagged
@@ -102,6 +117,24 @@ def has_no_progress(this_round_issues: list[dict], prior_issues: list[dict] | No
     this_round_keys = {(issue["category"], issue["target_id"]) for issue in this_round_issues}
 
     return bool(prior_keys & this_round_keys)
+
+
+async def all_issue_targets_are_gap_synthesized(session: AsyncSession, issues: list[dict]) -> bool:
+    """Spec §7: routes a text-agent-categorized validation rejection to the
+    gap-synthesis rework path only when every flagged target is a concept
+    this feature created — never a heuristic guess, an explicit
+    `origin` metadata check per target. A missing target concept (deleted,
+    or the validator hallucinated an id) is conservatively treated as "not
+    gap-synthesized" rather than raised, since this is a routing decision,
+    not a correctness check on the target's existence."""
+    for issue in issues:
+        try:
+            concept = await concept_repo.get_concept(session, issue["target_id"])
+        except concept_repo.ConceptNotFoundError:
+            return False
+        if concept.metadata_.get("origin") != "gap_synthesis":
+            return False
+    return True
 
 
 async def commit_job(session: AsyncSession, kuzu_conn: kuzu.Connection, job_id: str) -> None:

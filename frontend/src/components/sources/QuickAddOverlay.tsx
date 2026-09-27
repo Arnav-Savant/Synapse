@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { type CreateSourceResult, createSource, fetchSources } from "../../api/sources";
 import { JobStatusIndicator } from "../jobs/JobStatusIndicator";
 import { ProcessSourceButton } from "../jobs/ProcessSourceButton";
+import { IconButton } from "../ui/IconButton";
+import { XIcon } from "../ui/icons";
 
 const inputClass =
   "w-full border-b border-ink-line bg-transparent px-1 py-2 text-paper placeholder-graphite/60 focus:border-spark focus:outline-none";
@@ -68,15 +70,8 @@ export function QuickAddOverlay({ onClose }: QuickAddOverlayProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-graphite">add source</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="close"
-            className="font-mono text-lg text-graphite hover:text-paper"
-          >
-            ×
-          </button>
+          <h2 className="text-sm text-graphite">add source</h2>
+          <IconButton icon={<XIcon />} aria-label="Close" title="Close" onClick={onClose} size="md" />
         </div>
 
         {lastSaved ? (

@@ -35,15 +35,30 @@ class GraphAgentOutputParseError(ValueError):
 @dataclass(frozen=True)
 class GraphAgentOutput:
     relationships_written: list[dict]
+    structural_gaps: list[dict]
     raw_result_text: str
 
 
 _OUTPUT_SHAPE = (
     '{"relationships_written": [{"source_id": "...", "target_id": "...", '
-    '"type": "...", "action": "created"}]}'
+    '"type": "...", "action": "created"}], '
+    '"structural_gaps": [{"gap_type": "missing_parent", "member_concept_ids": '
+    '["...", "..."], "proposed_title": "...", "proposed_scope_hint": "...", '
+    '"justification": "..."}]}'
 )
 
 _REQUIRED_KEYS = ("relationships_written",)
+
+# Spec §3: this feature only supports the missing_parent gap type — reject
+# anything else rather than silently widening scope. Every entry must carry
+# all five of these keys.
+_REQUIRED_GAP_KEYS = (
+    "gap_type",
+    "member_concept_ids",
+    "proposed_title",
+    "proposed_scope_hint",
+    "justification",
+)
 
 
 def _format_type_taxonomy() -> str:
@@ -114,6 +129,24 @@ def build_prompt(concepts_written: list[dict], critique_delta: str | None = None
         "edge that needs correcting). Only propose a relationship when you "
         "have real topological evidence to justify it — silence (no edge) is "
         "better than a hallucinated connection.",
+        "--- Missing-parent gaps: report, don't invent ---\n"
+        "You cannot create concepts — only relate existing ones. Sometimes "
+        "two or more concepts above are genuinely siblings under a common "
+        "parent topic that doesn't exist as a concept yet. Before reporting "
+        "this, you must: (a) call `get_graph_neighborhood` on each member "
+        "concept and confirm it has no existing hierarchical ancestor "
+        "(`subtopic-of`) that would already serve as this parent, and (b) "
+        "call `search_concepts` with your best guess at the parent's title "
+        "to confirm nothing matching already exists under a different ID. "
+        "Only after both come back empty, report it as a "
+        "`gap_type: \"missing_parent\"` entry in `structural_gaps` with the "
+        "member concept_ids, a `proposed_title`, a one-sentence "
+        "`proposed_scope_hint`, and a `justification` citing the specific "
+        "topological evidence from (a) and (b) — never a fabricated text "
+        "quote, same rule as every other justification in this prompt. Do "
+        "not report a gap for concepts that already have a plausible "
+        "existing parent, and do not report more than one gap for the same "
+        "group of siblings.",
         "--- Output ---\n"
         "End your final response with a fenced JSON block reporting what you "
         "did, in exactly this shape:\n"
@@ -140,7 +173,27 @@ def parse_output(result_text: str) -> GraphAgentOutput:
     """
     data = extract_json_object(result_text, _REQUIRED_KEYS, GraphAgentOutputParseError)
 
+    structural_gaps = data.get("structural_gaps", [])
+    if not isinstance(structural_gaps, list):
+        raise GraphAgentOutputParseError(
+            f"structural_gaps must be a list, got {type(structural_gaps).__name__}: {structural_gaps!r}"
+        )
+    for gap in structural_gaps:
+        if not isinstance(gap, dict):
+            raise GraphAgentOutputParseError(f"structural_gaps entry must be an object, got {gap!r}")
+        missing_keys = [key for key in _REQUIRED_GAP_KEYS if key not in gap]
+        if missing_keys:
+            raise GraphAgentOutputParseError(
+                f"structural_gaps entry missing required key(s) {missing_keys}: {gap!r}"
+            )
+        if gap["gap_type"] != "missing_parent":
+            raise GraphAgentOutputParseError(
+                f"structural_gaps entry has unsupported gap_type {gap['gap_type']!r} — "
+                "only 'missing_parent' is supported (spec §3), never silently widen scope"
+            )
+
     return GraphAgentOutput(
         relationships_written=data["relationships_written"],
+        structural_gaps=structural_gaps,
         raw_result_text=result_text,
     )

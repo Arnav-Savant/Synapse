@@ -3,9 +3,13 @@ import json
 import pytest
 
 from app.agents.text_agent import (
+    GapSynthesisOutput,
+    GapSynthesisOutputParseError,
     TextAgentOutput,
     TextAgentOutputParseError,
+    build_gap_synthesis_prompt,
     build_prompt,
+    parse_gap_synthesis_output,
     parse_output,
 )
 from app.db.models import Source
@@ -122,3 +126,77 @@ def test_parse_output_raises_on_json_missing_required_key():
 
     with pytest.raises(TextAgentOutputParseError):
         parse_output(result_text)
+
+
+def test_build_gap_synthesis_prompt_create_mode_includes_members_and_proposal():
+    prompt = build_gap_synthesis_prompt(
+        member_concept_ids=["concept-1", "concept-2"],
+        proposed_title="Neural Networks",
+        proposed_scope_hint="The umbrella topic covering both members.",
+        justification="concept-1 and concept-2 share no common ancestor.",
+    )
+
+    assert "concept-1" in prompt
+    assert "concept-2" in prompt
+    assert "Neural Networks" in prompt
+    assert "get_concept" in prompt
+    assert "create_concept" in prompt
+    assert "origin" in prompt and "gap_synthesis" in prompt
+    assert "gap_member_ids" in prompt
+
+
+def test_build_gap_synthesis_prompt_rework_mode_includes_target_and_metadata_preservation():
+    prompt = build_gap_synthesis_prompt(
+        rework_target_concept_id="concept-9",
+        critique_delta="Validation Agent rejected: the body invents a fact not supported by the members.",
+    )
+
+    assert "concept-9" in prompt
+    assert "update_concept" in prompt
+    assert "Validation Agent rejected" in prompt
+    # The non-obvious correctness rule from the spec: metadata is fully
+    # replaced by update_concept, so the rework prompt must instruct
+    # reading it back and passing it through unchanged.
+    assert "get_concept" in prompt
+    assert "metadata" in prompt.lower()
+    assert "unchanged" in prompt.lower() or "preserve" in prompt.lower()
+
+
+def test_build_gap_synthesis_prompt_requires_one_complete_mode():
+    with pytest.raises(ValueError):
+        build_gap_synthesis_prompt()
+
+
+def test_parse_gap_synthesis_output_on_clean_json():
+    payload = {"concept_written": {"concept_id": "concept-9", "title": "Neural Networks", "action": "created"}}
+    result_text = json.dumps(payload)
+
+    output = parse_gap_synthesis_output(result_text)
+
+    assert isinstance(output, GapSynthesisOutput)
+    assert output.concept_written == payload["concept_written"]
+
+
+def test_parse_gap_synthesis_output_raises_on_missing_key():
+    with pytest.raises(GapSynthesisOutputParseError):
+        parse_gap_synthesis_output(json.dumps({"notes": "n/a"}))
+
+
+def test_parse_gap_synthesis_output_raises_when_concept_written_is_not_an_object():
+    payload = {"concept_written": "concept-9"}
+
+    with pytest.raises(GapSynthesisOutputParseError):
+        parse_gap_synthesis_output(json.dumps(payload))
+
+
+def test_parse_gap_synthesis_output_raises_when_concept_written_missing_required_key():
+    payload = {"concept_written": {"concept_id": "concept-9", "title": "Neural Networks"}}  # missing "action"
+
+    with pytest.raises(GapSynthesisOutputParseError):
+        parse_gap_synthesis_output(json.dumps(payload))
+
+
+def test_build_gap_synthesis_prompt_rework_mode_requires_both_target_and_critique():
+    # Missing critique_delta should raise ValueError
+    with pytest.raises(ValueError):
+        build_gap_synthesis_prompt(rework_target_concept_id="concept-9")

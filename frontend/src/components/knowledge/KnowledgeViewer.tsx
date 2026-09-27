@@ -59,16 +59,25 @@ export function KnowledgeViewer({ slug, onNavigate, onAskAboutConcept, onDeleted
       {mode === "view" ? (
         <>
           <MarkdownBody body={detail.body} onNavigate={onNavigate} />
-          <div className="flex gap-3 border-t border-paper-line pt-4 font-mono text-xs">
-            <button onClick={() => setMode("edit")} className="text-paper-ink/60 hover:text-spark-dim">
+          <div className="flex flex-wrap gap-2 border-t border-paper-line pt-4 font-mono text-xs">
+            <button
+              onClick={() => setMode("edit")}
+              className="rounded-sm border border-paper-line px-3 py-1.5 text-paper-ink/70 transition-colors hover:border-spark-dim hover:text-spark-dim"
+            >
               edit
             </button>
             {onAskAboutConcept && (
-              <button onClick={() => onAskAboutConcept(slug)} className="text-paper-ink/60 hover:text-spark-dim">
+              <button
+                onClick={() => onAskAboutConcept(slug)}
+                className="rounded-sm border border-paper-line px-3 py-1.5 text-paper-ink/70 transition-colors hover:border-spark-dim hover:text-spark-dim"
+              >
                 ask about this concept
               </button>
             )}
-            <button onClick={() => setConfirmingDelete(true)} className="text-signal-dim hover:text-signal">
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="rounded-sm border border-paper-line px-3 py-1.5 text-signal-dim transition-colors hover:border-signal-dim hover:bg-signal-dim/10"
+            >
               delete
             </button>
           </div>

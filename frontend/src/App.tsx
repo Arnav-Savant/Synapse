@@ -7,6 +7,8 @@ import { ConceptPanel } from "./components/knowledge/ConceptPanel";
 import { LibraryDock } from "./components/knowledge/LibraryDock";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { QuickAddOverlay } from "./components/sources/QuickAddOverlay";
+import { Button } from "./components/ui/Button";
+import { GearIcon, PlusIcon } from "./components/ui/icons";
 import { useGraphData } from "./hooks/useGraphData";
 import { HealthBadge } from "./routes/HealthBadge";
 
@@ -35,7 +37,7 @@ export function App() {
 
   return (
     <div className="flex h-screen flex-col bg-ink">
-      <header className="flex items-center justify-between gap-6 border-b border-ink-line px-6 py-3">
+      <header className="flex items-center justify-between gap-6 border-b border-ink-line px-6 py-2.5">
         <div className="flex items-center gap-2.5">
           <span className="h-2 w-2 rounded-full bg-spark shadow-[0_0_8px_2px_rgba(217,164,65,0.5)]" />
           <h1 className="font-mono text-sm tracking-wide text-paper">synapse</h1>
@@ -46,23 +48,13 @@ export function App() {
         </div>
 
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => setComposeOpen(true)}
-            aria-label="add source"
-            className="font-mono text-sm text-graphite hover:text-paper"
-          >
-            +
-          </button>
+          <Button variant="primary" icon={<PlusIcon className="h-4 w-4" />} onClick={() => setComposeOpen(true)}>
+            add source
+          </Button>
           <HealthBadge />
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="settings"
-            className="font-mono text-sm text-graphite hover:text-paper"
-          >
-            ⚙
-          </button>
+          <Button icon={<GearIcon className="h-4 w-4" />} onClick={() => setSettingsOpen(true)}>
+            settings
+          </Button>
         </div>
       </header>
 

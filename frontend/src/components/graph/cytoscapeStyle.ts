@@ -13,8 +13,8 @@ export const GRAPH_STYLESHEET: cytoscape.StylesheetJsonBlock[] = [
     style: {
       shape: "round-rectangle",
       "background-color": "data(color)",
-      "background-opacity": 0.16,
-      "border-width": 1.25,
+      "background-opacity": 0.22,
+      "border-width": 1.5,
       "border-color": "data(color)",
       label: "data(label)",
       "font-family": "JetBrains Mono, ui-monospace, monospace",
