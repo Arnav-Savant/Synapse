@@ -8,16 +8,12 @@ own.
 
 import os
 from functools import lru_cache
-from pathlib import Path
 from typing import TypeVar
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-# backend/app/core/config.py -> parents[3] is the repo root.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 T = TypeVar("T")
 
@@ -43,7 +39,6 @@ class ServerConfig:
         database_name: str | None = None,
         app_host: str | None = None,
         app_port: int | None = None,
-        kuzu_db_path: Path | None = None,
         log_level: str | None = None,
     ) -> None:
         # Frontend dev server origin, allowed for CORS. Backend itself only
@@ -58,8 +53,6 @@ class ServerConfig:
 
         self.app_host = _resolve(app_host, "APP_HOST", "127.0.0.1")
         self.app_port = _resolve(app_port, "APP_PORT", 8000, int)
-
-        self.kuzu_db_path = _resolve(kuzu_db_path, "KUZU_DB_PATH", _REPO_ROOT / ".synapse-graph", Path)
 
         self.log_level = _resolve(log_level, "LOG_LEVEL", "INFO").upper()
 

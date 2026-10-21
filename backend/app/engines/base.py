@@ -11,12 +11,10 @@ class AgentEngineError(RuntimeError):
 @dataclass(frozen=True)
 class EngineInvocation:
     agent_role: str                       # AgentConfig.agent_role PK — resolves engine/model/effort
-    job_id: str                           # passed through for job-scoping (e.g. the MCP server subprocess)
+    job_id: str
     prompt: str                           # fully-built prompt (base contract + any critique delta) —
                                            # built by the caller (agents/orchestrator, a later phase), not the engine
-    tool_names: tuple[str, ...] = ()      # domain tool names this call may use — caller-supplied, not
-                                           # derived by the engine, so the engine stays reusable for
-                                           # roles that don't have an MCP tool registry entry yet
+    tool_names: tuple[str, ...] = ()      # built-in tools this call may use (e.g. WebSearch); empty = none
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 
 
