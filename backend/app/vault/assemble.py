@@ -9,7 +9,7 @@ that leave every other line byte-identical.
 import re
 from dataclasses import dataclass, field
 
-from app.vault.frontmatter import dump_frontmatter
+from app.vault.frontmatter import FrontmatterError, dump_frontmatter, split_frontmatter
 from app.vault.titles import title_key
 from app.vault.wikilinks import find_code_ranges, find_wikilinks
 
@@ -149,4 +149,68 @@ def merge_additive(
         text = insert_link_line(text, "Related", entry)
     for entry in new_refs:
         text = insert_link_line(text, "References", entry)
+    return text
+
+
+def section_span(text: str, section: str) -> tuple[int, int] | None:
+    """Character offsets of a `## {section}` block (heading included), or None."""
+    lines = text.splitlines(keepends=True)
+    bounds = _section_bounds(lines, section)
+    if bounds is None:
+        return None
+    start = sum(len(l) for l in lines[: bounds[0]])
+    return start, sum(len(l) for l in lines[: bounds[1]])
+
+
+def _set_up_line(body: str, parents: list[str]) -> str:
+    nl = "\r\n" if "\r\n" in body else "\n"
+    lines = body.splitlines(keepends=True)
+    up_index = next((i for i, l in enumerate(lines[:10]) if l.lstrip().startswith("Up:")), None)
+    new_line = "Up: " + ", ".join(f"[[{p}]]" for p in parents) + nl
+
+    if parents:
+        if up_index is not None:
+            lines[up_index] = new_line
+        else:
+            first = next((i for i, l in enumerate(lines) if l.strip()), len(lines))
+            lines[first:first] = [new_line, nl]
+    elif up_index is not None:
+        del lines[up_index]
+        blank_before = up_index == 0 or lines[up_index - 1].strip() == ""
+        if blank_before and up_index < len(lines) and lines[up_index].strip() == "":
+            del lines[up_index]
+    return "".join(lines)
+
+
+def set_parents(text: str, parent_titles: list[str]) -> str:
+    """Rewrites the `parents` frontmatter key and the `Up:` line (removed when
+    there are no parents). The rest of the body is untouched. A note whose
+    frontmatter is unreadable is returned unchanged."""
+    try:
+        meta, body = split_frontmatter(text)
+    except FrontmatterError:
+        return text
+    head = text[: len(text) - len(body)]
+    if meta:
+        meta["parents"] = [f"[[{p}]]" for p in parent_titles]
+        head = dump_frontmatter(meta)
+    return head + _set_up_line(body, parent_titles)
+
+
+def drop_empty_sections(text: str) -> str:
+    """Removes `## Subtopics/Related/References` blocks that have a heading but no content."""
+    for section in SECTIONS:
+        lines = text.splitlines(keepends=True)
+        bounds = _section_bounds(lines, section)
+        if bounds is None or any(l.strip() for l in lines[bounds[0] + 1 : bounds[1]]):
+            continue
+        kept = lines[: bounds[0]] + lines[bounds[1] :]
+        if bounds[1] >= len(lines):  # it was the last block: don't leave a trailing blank gap
+            while kept and kept[-1].strip() == "":
+                kept.pop()
+            if kept and not kept[-1].endswith(("\n", "\r")):
+                kept[-1] += "\n"
+            elif kept:
+                kept.append("")  # keep one final newline
+        text = "".join(kept)
     return text

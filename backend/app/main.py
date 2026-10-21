@@ -25,6 +25,7 @@ from app.db.seed import seed_default_agent_configs, seed_default_domains
 from app.engines.claude_code_engine import ClaudeCodeEngineError
 from app.repositories.agent_config_repo import AgentConfigNotFoundError
 from app.repositories.domain_repo import DomainExistsError, DomainNotFoundError
+from app.services.reconcile_service import reconcile_all
 from app.services.agent_config_service import AgentConfigValidationError
 from app.services.domain_service import DomainInUseError, InvalidDomainError, VaultFolderError
 
@@ -69,6 +70,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async for session in postgres_connection.get_session():
         await seed_default_domains(session, settings)
+
+    try:
+        async for session in postgres_connection.get_session():
+            await reconcile_all(session)
+    except Exception:
+        # A reconcile problem must never keep the app from starting; the Notes page can re-run it.
+        logger.exception("startup reconcile failed; continuing without it")
 
     logger.info("backend ready")
     yield

@@ -88,3 +88,10 @@ async def delete_domain(session: AsyncSession, slug: str) -> None:
     await session.delete(domain)
     await session.commit()
     logger.debug("domain row deleted: slug=%s", slug)
+
+
+async def get_by_id(session: AsyncSession, domain_id: str) -> Domain:
+    domain = await session.get(Domain, domain_id)
+    if domain is None:
+        raise DomainNotFoundError(f"no domain with id {domain_id!r}")
+    return domain

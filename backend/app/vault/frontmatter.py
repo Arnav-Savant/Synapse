@@ -25,7 +25,7 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
             try:
                 meta = yaml.safe_load(raw) if raw.strip() else {}
             except yaml.YAMLError as exc:
-                raise FrontmatterError(f"frontmatter is not valid YAML: {exc}") from exc
+                raise FrontmatterError(f"frontmatter is not valid YAML: {str(exc).splitlines()[0]}") from exc
             if not isinstance(meta, dict):
                 raise FrontmatterError("frontmatter must be a YAML mapping")
             return meta, "".join(lines[i + 1 :])
@@ -36,5 +36,24 @@ def dump_frontmatter(meta: dict) -> str:
     """Returns the frontmatter block including both fences and a trailing newline."""
     ordered = {k: meta[k] for k in _KEY_ORDER if meta.get(k) is not None}
     ordered.update({k: v for k, v in meta.items() if k not in _KEY_ORDER and v is not None})
-    body = yaml.safe_dump(ordered, default_flow_style=None, allow_unicode=True, sort_keys=False, width=10_000)
+    # One key at a time: scalars stay one-per-line (block style) while lists
+    # stay compact (`aliases: [a, b]`), which is how Obsidian shows properties.
+    body = "".join(
+        yaml.safe_dump(
+            {k: v},
+            default_flow_style=None if isinstance(v, (list, tuple)) else False,
+            allow_unicode=True,
+            sort_keys=False,
+            width=10_000,
+        )
+        for k, v in ordered.items()
+    )
     return f"{_FENCE}\n{body}{_FENCE}\n"
+
+
+def with_meta(text: str, updates: dict) -> str:
+    """Returns `text` with `updates` merged into its frontmatter (a block is
+    created if there is none). The body after the frontmatter is untouched."""
+    meta, body = split_frontmatter(text)
+    meta.update(updates)
+    return dump_frontmatter(meta) + body
