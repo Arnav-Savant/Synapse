@@ -1,15 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgentConfigOut(BaseModel):
     agent_role: str
-    engine: str
-    provider: str | None
     model: str
     effort: str
-    env_key_name: str | None
+    params: dict
     updated_at: datetime
 
 
@@ -18,8 +16,6 @@ class AgentConfigListResponse(BaseModel):
 
 
 class UpdateAgentConfigRequest(BaseModel):
-    engine: str
     model: str
     effort: str
-    provider: str | None = None
-    env_key_name: str | None = None
+    params: dict = Field(default_factory=dict)

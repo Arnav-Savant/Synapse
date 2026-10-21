@@ -27,10 +27,8 @@ async def update_agent_config(
     config = await agent_config_service.update_config(
         session,
         agent_role,
-        engine=body.engine,
         model=body.model,
         effort=body.effort,
-        provider=body.provider,
-        env_key_name=body.env_key_name,
+        params=body.params,
     )
     return AgentConfigOut.model_validate(config, from_attributes=True)

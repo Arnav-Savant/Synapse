@@ -2,13 +2,10 @@
 rows.
 
 Plain, stateless functions taking an explicit `AsyncSession` argument —
-matches the `concept_repo.py`/`source_record_repo.py` pattern. The role
-roster (orchestrator, text_agent, graph_agent, validation_agent, naming,
-chat) is fixed by `db/seed.py`'s seeding; `update_agent_config` never
+the repository pattern used across `repositories/`. The role roster (the ten
+agent roles) is fixed by `db/seed.py`'s seeding; `update_agent_config` never
 inserts a new role, only updates one that already exists, and commits
-immediately per this codebase's established convention (see
-`concept_repo.py`'s `create_concept`/`update_concept` docstrings) so the
-write is durable before the request/subprocess that made it exits.
+immediately so the write is durable before the request that made it exits.
 """
 
 import logging
@@ -35,9 +32,8 @@ async def get_agent_config(session: AsyncSession, agent_role: str) -> AgentConfi
 
 
 async def list_agent_configs(session: AsyncSession) -> list[AgentConfig]:
-    """All rows — the 6 seeded roles (orchestrator, text_agent, graph_agent,
-    validation_agent, naming, chat) plus any that might exist beyond those."""
-    result = await session.execute(select(AgentConfig))
+    """All rows, ordered by role name."""
+    result = await session.execute(select(AgentConfig).order_by(AgentConfig.agent_role))
     return list(result.scalars().all())
 
 
@@ -45,32 +41,23 @@ async def update_agent_config(
     session: AsyncSession,
     *,
     agent_role: str,
-    engine: str,
     model: str,
     effort: str,
-    provider: str | None = None,
-    env_key_name: str | None = None,
+    params: dict,
 ) -> AgentConfig:
-    """Updates the existing row — never inserts (the role roster is fixed
-    by db/seed.py's seeding). Every field is always provided by the caller
-    (the API layer always sends a complete UpdateAgentConfigRequest), so
-    unlike concept_repo.update_concept this has no partial/None-means-
-    unchanged semantics: provider=None/env_key_name=None genuinely clears
-    those fields (the claude_code case). Raises AgentConfigNotFoundError if
-    agent_role doesn't already exist. Commits the write for the same reason
-    as concept_repo.py's create_concept/update_concept — see this module's
-    docstring."""
+    """Updates the existing row — never inserts. Every field is always
+    provided by the caller (the API layer always sends a complete request),
+    so there are no partial/None-means-unchanged semantics. Raises
+    AgentConfigNotFoundError if agent_role doesn't already exist."""
     result = await session.execute(select(AgentConfig).where(AgentConfig.agent_role == agent_role))
     config = result.scalars().first()
     if config is None:
         raise AgentConfigNotFoundError(agent_role)
 
-    config.engine = engine
     config.model = model
     config.effort = effort
-    config.provider = provider
-    config.env_key_name = env_key_name
+    config.params = params
 
     await session.commit()
-    logger.info("agent config updated: role=%s engine=%s model=%s", agent_role, engine, model)
+    logger.info("agent %r now uses model %s at effort %s", agent_role, model, effort)
     return config
