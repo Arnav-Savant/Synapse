@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.agents.runner import AgentOutputError
 from app.api.agent_config import router as agent_config_router
 from app.api.health import router as health_router
 from app.api.domains import router as domains_router
@@ -124,6 +125,7 @@ app.add_exception_handler(DomainNotFoundError, _json_handler(404, "domain not fo
 app.add_exception_handler(DomainExistsError, _json_handler(409, "domain already exists"))
 app.add_exception_handler(DomainInUseError, _json_handler(409, "domain in use"))
 app.add_exception_handler(InvalidDomainError, _json_handler(400, "invalid domain"))
+app.add_exception_handler(AgentOutputError, _json_handler(502, "agent output unusable", logger.error))
 app.add_exception_handler(VaultFolderError, _json_handler(500, "vault folder error", logger.error))
 
 

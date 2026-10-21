@@ -1,6 +1,6 @@
 """Shared tolerant-JSON-extraction logic for agent structured outputs.
 
-Multiple agents (Text, Graph, and — pending — Validation) end their final
+Every agent role ends their final
 response with a fenced/embedded JSON object reporting what they did, and
 each needs to extract it tolerant of prose wrapping (Claude Code is
 observed to sometimes wrap JSON in explanatory text despite instruction

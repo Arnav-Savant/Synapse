@@ -1,11 +1,22 @@
 """Domain routes. Thin: validate via schemas, call the service."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_server_config
 from app.core.postgres_connection import postgres_connection
-from app.schemas.domains import CreateDomainRequest, DomainListResponse, DomainOut, UpdateDomainRequest
+from app.agents.profile_builder import draft_profile
+from app.engines.factory import build_engine
+from app.schemas.domains import (
+    CreateDomainRequest,
+    DomainListResponse,
+    DomainOut,
+    DomainProfile,
+    ProfileAnswers,
+    UpdateDomainRequest,
+)
 from app.services import domain_service
 
 router = APIRouter()
@@ -29,6 +40,13 @@ async def create_domain(
         session, get_server_config(), name=body.name, purpose=body.purpose, profile=body.profile
     )
     return _out(domain)
+
+
+@router.post("/domains/draft-profile", response_model=DomainProfile)
+async def draft_domain_profile(answers: ProfileAnswers) -> DomainProfile:
+    """Asks Claude to fill in a profile from the form answers. Saves nothing."""
+    result = await draft_profile(build_engine(), job_id=f"profile-{uuid.uuid4().hex[:8]}", answers=answers)
+    return result.value
 
 
 @router.put("/domains/{slug}", response_model=DomainOut)

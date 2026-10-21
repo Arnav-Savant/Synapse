@@ -30,6 +30,8 @@ def configure_logging() -> None:
                     "level": server_config.log_level,
                 },
             },
+            # one INFO line per HTTP request is noise; the services log what the requests mean
+            "loggers": {"httpx": {"level": "WARNING"}, "httpcore": {"level": "WARNING"}},
             "root": {
                 "handlers": ["console"],
                 "level": server_config.log_level,
