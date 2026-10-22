@@ -1,51 +1,69 @@
 # Synapse
 
-A personal, local-first application for turning raw AI-study material
-(ChatGPT/Claude/Gemini conversations, articles, PDFs, YouTube transcripts,
-notes) into a single, deduplicated, navigable **global knowledge graph**.
+Synapse turns a topic name or a pile of pasted material into a set of
+well-structured, densely linked study notes, and writes them into
+[Obsidian](https://obsidian.md) vaults on your own machine.
 
-Synapse is not a chatbot that teaches you. It's a knowledge-management
-system: you drop raw material in, Claude Code reads it and your existing
-knowledge base, and updates a canonical set of human-readable Markdown
-concept files with meaningful relationships between them. The app renders
-that as a global graph you navigate to study — the graph and the generated
-notes are the product, not a conversation.
+You give it something to learn: a topic you know nothing about, or notes you
+already have. Synapse proposes an outline, you approve it, agents research and
+write each note, and you review the drafts before anything touches a vault.
+Obsidian then does what it is good at: the graph view, search and editing.
 
-## Status
+Synapse is a personal, single-user, local-first tool. Nothing is hosted, and it
+needs no API key: the agents are the `claude` command-line tool running under
+your own Claude subscription.
 
-**Pre-implementation.** Architecture and phased build plan are complete;
-code has not been written yet. See:
+## What it does
 
-- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — what the app must do
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it's built and why
-- [`docs/PLAN.md`](docs/PLAN.md) — the phase-by-phase build order
+- **Two ways in.** Paste material and Synapse splits it into a tree of linked
+  notes. Or name a topic and Synapse researches it on the web first.
+- **You approve twice.** First the outline (the tree of notes to write), then
+  the drafts. Nothing is written to a vault before the second approval.
+- **Domains, each with its own vault.** A domain is an area you study, such as
+  System Design or DSA. Each has a profile that sets how deep its notes go, what
+  is in scope and what tone to use. You define your own.
+- **A dense graph, not a pile of files.** New material that overlaps an existing
+  note is merged into it, or linked to it. Every note links to its parent, its
+  subtopics and related notes.
+- **Your edits are safe.** Edit notes in Obsidian whenever you like. Synapse
+  never overwrites a file you changed; it merges against the file as it is now.
+- **Clean deletes.** Deleting a note removes the links to it, so Obsidian never
+  shows a ghost node, and re-attaches the notes that sat beneath it.
+- **Survives restarts.** Jobs run as durable workflows. Stop and restart the
+  backend mid-run and each job picks up where it was.
 
-## Core ideas
+## How it fits together
 
-- **Filesystem is the source of truth.** Raw material lives in `source/`
-  (untouched, ever) and generated knowledge lives in `knowledge/` as
-  Markdown with frontmatter — both inside `synapse-knowledge/`, a
-  subdirectory of this repo (see `ARCHITECTURE.md` §1). No database.
-- **One global graph.** Every concept is a single node regardless of how
-  many different topics/contexts it shows up in; the graph is derived from
-  the canonical Markdown, not maintained separately.
-- **Claude Code is the processing engine**, invoked headlessly by the
-  backend against your existing paid subscription — no API key required for
-  the core ingestion workflow.
-- **The app is the study interface.** A graph-based navigator plus a
-  cleaned-up knowledge viewer/editor — no dependency on Obsidian or any
-  other external tool.
+```
+Browser (React) ──HTTP──▶ FastAPI backend (127.0.0.1:8000)
+                              │ starts workflows, sends decisions
+                              ▼
+                    Temporal server (Docker) ◀──▶ Temporal worker (inside the backend)
+                              │                        │
+                              ▼                        ├─ runs agents: `claude -p` subprocesses
+                    Postgres (Docker)                  └─ runs deterministic steps: commit, delete, reconcile
+                    app data + Temporal's own data
+                                                  Vault folders on disk ◀── written only by the commit step
+                                                  Obsidian ───────────────▶ reads the same folders
+```
+
+The note files in the vaults are the source of truth. Postgres holds drafts,
+jobs, settings and an index of the notes that can be rebuilt from the vaults at
+any time.
 
 ## Stack
 
-- Backend: Python, FastAPI, no database
-- Frontend: React, TypeScript, Vite, Tailwind CSS, Cytoscape.js for the
-  graph
-- Knowledge engine: `claude` CLI (headless/`-p` mode), subprocess-invoked
-- Optional external LLMs (later, chat only): LiteLLM
+- Backend: Python 3.12, FastAPI, SQLAlchemy (async) with Alembic, Temporal
+- Frontend: React, TypeScript, Vite, Tailwind CSS, TanStack Query
+- Storage: Postgres and plain Markdown files
+- Agents: the `claude` CLI in headless mode
 
-## Getting started
+## Documentation
 
-Not yet runnable — see [`docs/PLAN.md`](docs/PLAN.md) Phase 0. Once Phase 0
-lands, `SETUP.md` will have real install/run steps and `USAGE.md` will
-describe day-to-day use.
+| Document | What it covers |
+|---|---|
+| [`SETUP.md`](SETUP.md) | Installing and running Synapse, and every setting |
+| [`USAGE.md`](USAGE.md) | Day-to-day use, screen by screen |
+| [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | What Synapse must do |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How it works and why it is built this way |
+| [`CLAUDE.md`](CLAUDE.md) | Orientation for AI coding sessions in this repository |

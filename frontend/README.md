@@ -1,32 +1,32 @@
-# React + TypeScript + Vite
+# Synapse frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The Synapse web app: React, TypeScript, Vite, Tailwind CSS and TanStack Query.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173, proxies /api to the backend on 127.0.0.1:8000
+npm run build    # type-check and production build
+npm run lint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The backend must be running for anything beyond the shell to work; see the root
+[`SETUP.md`](../SETUP.md).
+
+## Layout
+
+| Folder | Contents |
+|---|---|
+| `src/api/` | Typed clients, one per backend area. `client.ts` is the only code that calls `fetch`. |
+| `src/design/` | Colour, type and spacing tokens (`tokens.css`) and the shared primitives: button, chip, card, form fields, empty state, spinner. |
+| `src/shell/` | The sidebar (with the live "needs you" count) and the page frame with its sticky action bar. |
+| `src/features/ingest/` | Submit a topic or pasted material. |
+| `src/features/jobs/` | The jobs dashboard, the pipeline trail and the read-only job view. |
+| `src/features/outline/` | The outline approval screen and its pure tree-editing helpers. |
+| `src/features/drafts/` | The draft review screen: list, preview, diff, feedback form and the decision builder. |
+| `src/features/notes/` | The notes list and the delete preview dialog. |
+| `src/features/settings/` | Domain management and per-agent model settings. |
+
+There is no router: four top-level views are held in state, and the two approval screens open
+from inside Jobs. Colours always come from the semantic tokens (`bg-surface`, `text-muted`,
+`bg-accent`, and so on), never from literal values, so light and dark themes stay in step with the
+operating system. Server state lives in TanStack Query; everything else is local component state.
