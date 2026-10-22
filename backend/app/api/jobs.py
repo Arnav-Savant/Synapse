@@ -125,7 +125,7 @@ async def get_drafts(job_id: str, session: AsyncSession = Depends(postgres_conne
     views = [
         DraftView(
             node_key=d.node_key, domain_slug=slug_of[d.domain_id], title=d.title, kind=d.kind, stage=d.stage,
-            path=d.path, body_md=d.body_md, validator_flags=d.validator_flags or [],
+            path=d.path, parents=d.parents or [], body_md=d.body_md, validator_flags=d.validator_flags or [],
             diff=_diff(ctx.domains[slug_of[d.domain_id]].vault_path, d),
         )
         for d in drafts

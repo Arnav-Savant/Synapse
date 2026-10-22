@@ -64,6 +64,7 @@ class DraftView(BaseModel):
     kind: str  # new | merge
     stage: str
     path: str | None
+    parents: list[str]  # titles of the notes this one sits under
     body_md: str
     validator_flags: list[dict]
     diff: str | None  # merge drafts: unified diff against the file on disk now

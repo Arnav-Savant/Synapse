@@ -1,0 +1,95 @@
+/*
+ * Design tokens. Neutrals are a cool grey-green; the one accent is verdigris (oxidised copper).
+ * Status colours are functional (needs you, running, done, failed), never decoration.
+ * Light and dark both follow the OS setting; components only ever use the semantic names below.
+ */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --sunken: #ecf0ee;
+  --line: #dce2df;
+  --line-strong: #c3ccc8;
+  --fg: #17201e;
+  --muted: #55625e;
+  --faint: #7d8985;
+
+  --accent: #1b7f72;
+  --accent-hover: #166a5f;
+  --accent-fg: #ffffff;
+  --accent-soft: #ddefeb;
+
+  --info: #2f5f9a;
+  --info-soft: #e1eaf5;
+  --warn: #8a5200;
+  --warn-bar: #c98512;
+  --warn-soft: #fcefd2;
+  --ok: #2b6e45;
+  --ok-soft: #dff0e5;
+  --danger: #a83a2a;
+  --danger-soft: #f8e3df;
+
+  --shadow-pop: 0 8px 24px -8px rgb(16 28 24 / 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101514;
+    --surface: #171e1d;
+    --sunken: #0c1110;
+    --line: #263130;
+    --line-strong: #384644;
+    --fg: #e4ebe8;
+    --muted: #9aa7a2;
+    --faint: #6f7c77;
+
+    --accent: #5cc2b1;
+    --accent-hover: #7ad3c4;
+    --accent-fg: #0b1513;
+    --accent-soft: #16312d;
+
+    --info: #86aee3;
+    --info-soft: #1a2536;
+    --warn: #e8b04a;
+    --warn-bar: #e8b04a;
+    --warn-soft: #33290f;
+    --ok: #78c796;
+    --ok-soft: #15291d;
+    --danger: #ee8c7b;
+    --danger-soft: #381c17;
+
+    --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.6);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-warn: var(--warn);
+  --color-warn-bar: var(--warn-bar);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: "Instrument Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-note: "Newsreader Variable", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius-control: 6px;
+  --radius-panel: 10px;
+}

@@ -39,6 +39,7 @@ class NoteOut(BaseModel):
     summary: str
     domain_slug: str
     user_modified: bool
+    job_id: str | None  # the job that created it; lets the owner delete everything one job made
     twin_domains: list[str]  # other vaults holding a note on the same subject
 
 
