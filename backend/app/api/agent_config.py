@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.postgres_connection import postgres_connection
-from app.schemas.agent_config import AgentConfigListResponse, AgentConfigOut, UpdateAgentConfigRequest
+from app.schemas.agent_config import AgentConfigListResponse, AgentConfigOut, ModelListResponse, UpdateAgentConfigRequest
 from app.services import agent_config_service
 
 router = APIRouter()
@@ -16,6 +16,12 @@ async def list_agent_configs(
 ) -> AgentConfigListResponse:
     configs = await agent_config_service.list_configs(session)
     return AgentConfigListResponse(configs=[AgentConfigOut.model_validate(c, from_attributes=True) for c in configs])
+
+
+@router.get("/agent-configs/models", response_model=ModelListResponse)
+def list_models() -> ModelListResponse:
+    """The models an agent role can be set to."""
+    return ModelListResponse(models=agent_config_service.list_models())
 
 
 @router.put("/agent-configs/{agent_role}", response_model=AgentConfigOut)

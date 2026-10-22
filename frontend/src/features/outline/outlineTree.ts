@@ -1,4 +1,4 @@
-import type { OutlineNode, OverlapKind, Outline } from "../../api/jobs";
+import type { Ancestor, OutlineNode, OverlapKind, Outline } from "../../api/jobs";
 
 /** Pure edits to an outline. Each returns a new tree and never touches its input. */
 
@@ -51,6 +51,8 @@ export function addChild(tree: Outline, parentKey: string, title: string): Outli
     domains: [...parent.domains],
     content_slice: null,
     verdicts: {},
+    hub: false,
+    reuse: false,
   };
   return { ...tree, nodes: [...tree.nodes, node] };
 }
@@ -107,4 +109,20 @@ export function subtreeKeys(tree: Outline, key: string): Set<string> {
   };
   walk(key);
   return out;
+}
+
+/** Replaces the hub path above the topic for one domain. Attached notes need a hub, so they are cleared with the last one. */
+export function setAncestors(tree: Outline, slug: string, ancestors: Ancestor[]): Outline {
+  return {
+    ...tree,
+    ancestors: { ...tree.ancestors, [slug]: ancestors },
+    adopt: ancestors.length === 0 ? { ...tree.adopt, [slug]: [] } : tree.adopt,
+  };
+}
+
+/** Ticks or unticks an existing top-level note to be attached under the innermost hub. */
+export function toggleAdopt(tree: Outline, slug: string, noteId: string): Outline {
+  const current = tree.adopt[slug] ?? [];
+  const next = current.includes(noteId) ? current.filter((id) => id !== noteId) : [...current, noteId];
+  return { ...tree, adopt: { ...tree.adopt, [slug]: next } };
 }

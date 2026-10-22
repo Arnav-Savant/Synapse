@@ -78,7 +78,7 @@ export function NotesPage() {
                 </option>
               ))}
             </SelectInput>
-            <TextInput aria-label="Search notes" type="search" placeholder="Search by title or summary" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
+            <TextInput aria-label="Search notes" type="search" placeholder="Search by title or summary" value={q} onChange={(e) => setQ(e.target.value)} className="w-72 max-w-full" />
           </div>
 
           {notes.isLoading ? (
@@ -100,6 +100,7 @@ export function NotesPage() {
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-2 font-medium">
                           {n.title}
+                          {n.is_hub ? <Chip tone="info" title="Groups related topics">Hub</Chip> : null}
                           {n.user_modified ? <Chip tone="warn" title="Edited in Obsidian after Synapse wrote it">Edited by you</Chip> : null}
                           {n.twin_domains.map((t) => (
                             <Chip key={t}>Also in {names[t] ?? t}</Chip>

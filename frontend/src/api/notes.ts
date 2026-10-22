@@ -8,6 +8,8 @@ export interface Note {
   summary: string;
   domain_slug: string;
   user_modified: boolean;
+  /** A note that groups topics. */
+  is_hub: boolean;
   /** The job that created it, if any. */
   job_id: string | null;
   /** Other vaults that hold a note on the same subject. */

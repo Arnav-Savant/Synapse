@@ -172,6 +172,8 @@ class IngestTopicWorkflow:
         self._step = "outline"
         await self._mark(job_id, "outline", "running")
         await self._act("build_outline", job_id, None, timeout=timedelta(minutes=20), agent=True)
+        await self._mark(job_id, "place", "running")
+        await self._act("place_topic", job_id, timeout=timedelta(minutes=10), agent=True)
         await self._mark(job_id, "overlap", "running")
         await self._act("compute_overlap", job_id, timeout=timedelta(minutes=10), agent=True)
 
@@ -194,6 +196,8 @@ class IngestTopicWorkflow:
                 continue
             if decision.kind == "replan":
                 await self._act("build_outline", job_id, decision.feedback, timeout=timedelta(minutes=20), agent=True)
+                await self._mark(job_id, "place", "running")
+                await self._act("place_topic", job_id, timeout=timedelta(minutes=10), agent=True)
                 await self._mark(job_id, "overlap", "running")
                 await self._act("compute_overlap", job_id, timeout=timedelta(minutes=10), agent=True)
                 continue

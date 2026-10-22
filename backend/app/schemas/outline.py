@@ -18,6 +18,17 @@ class OverlapVerdict(BaseModel):
     reason: str = ""
 
 
+MAX_HUB_LEVELS = 2  # hubs allowed above a topic's top note; 0, 1 or 2
+
+
+class Ancestor(BaseModel):
+    """One hub level above the topic's top note, outermost first."""
+
+    title: str
+    summary: str = ""
+    existing_note_id: str | None = None  # set when this reuses a hub already in the vault
+
+
 class OutlineNode(BaseModel):
     key: str
     title: str
@@ -26,11 +37,19 @@ class OutlineNode(BaseModel):
     domains: list[str] = Field(default_factory=list)  # domain slugs; empty until the job fills in the resolved domains
     content_slice: str | None = None  # content-given mode: the part of the input that belongs to this node
     verdicts: dict[str, OverlapVerdict] = Field(default_factory=dict)  # keyed by domain slug
+    # Set only on nodes the job builds around the outline (never by agents): a hub note, and/or an
+    # existing note that is used as it is rather than written.
+    hub: bool = False
+    reuse: bool = False
 
 
 class Outline(BaseModel):
     topic_title: str
     nodes: list[OutlineNode]
+    # Where the topic sits, per domain slug: hub levels above its top note (outermost first), and existing
+    # top-level notes to attach under the innermost hub by changing only their parent link.
+    ancestors: dict[str, list[Ancestor]] = Field(default_factory=dict)
+    adopt: dict[str, list[str]] = Field(default_factory=dict)
 
 
 def validate_outline(outline: Outline, *, max_nodes: int = 40, max_depth: int = 5) -> list[str]:

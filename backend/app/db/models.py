@@ -127,6 +127,7 @@ class Note(Base):
     topic_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     user_modified: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_hub: Mapped[bool] = mapped_column(Boolean, default=False)  # a note that groups topics; `hub: true` in its frontmatter
     tsv: Mapped[str] = mapped_column(TSVECTOR, Computed(NOTE_TSV_EXPRESSION, persisted=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

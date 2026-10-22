@@ -11,6 +11,7 @@ from temporalio import activity
 
 from app.agents.classifier import classify
 from app.agents.linker import judge_overlap
+from app.agents.placer import place_topic
 from app.agents.planner import plan_outline
 from app.agents.runner import AgentOutputError
 from app.agents.structurer import structure_content
@@ -18,6 +19,7 @@ from app.engines.base import AgentEngine
 from app.repositories import agent_config_repo, domain_repo, job_repo, note_index_repo, outline_draft_repo
 from app.schemas.domains import DomainSummary
 from app.schemas.outline import Outline, validate_outline
+from app.services import placement_service
 from app.services.job_service import profiles_for_job
 from app.workflows.activities.common import record_step
 from app.workflows.activities.heartbeat import with_heartbeat
@@ -95,15 +97,57 @@ class OutlineActivities:
         previous_domains = {n.key: n.domains for n in prior.nodes} if prior else {}
         for node in outline.nodes:  # keep the owner's per-node domain choices for nodes that survived the re-plan
             node.domains = [d for d in previous_domains.get(node.key, []) if d in job.resolved_domains] or list(job.resolved_domains)
+        if prior is not None:  # a re-plan keeps where the owner placed the topic
+            outline.ancestors, outline.adopt = prior.ancestors, prior.adopt
         async with self._session_factory() as session:
             await outline_draft_repo.save(session, job_id, outline, feedback)
         await self._record(job_id, "outline", role, result.cost_usd)
+
+    @activity.defn
+    async def place_topic(self, job_id: str) -> None:
+        """Decides which hub(s) the topic sits under, per domain, for any domain not placed yet."""
+        async with self._session_factory() as session:
+            job = await job_repo.get_job(session, job_id)
+            outline = await outline_draft_repo.get(session, job_id)
+            if outline is None:
+                raise ValueError("there is no outline to place")
+            todo = [s for s in job.resolved_domains if s not in outline.ancestors]
+            work = []
+            for slug in todo:
+                domain = await domain_repo.get_by_slug(session, slug)
+                hubs, notes = await placement_service.load_options(session, domain.id)
+                work.append((slug, domain, hubs, notes))
+        if not work:
+            return
+        root = next(n for n in outline.nodes if not n.parent_keys)
+        subtopics = [n.title for n in outline.nodes if n.key != root.key]
+
+        async def place(slug, domain, hubs, notes):
+            snapshot = (job.profile_snapshot or {}).get(slug, {})
+            return slug, notes, await place_topic(
+                self._engine, job_id=job_id, domain_name=snapshot.get("name", domain.name),
+                domain_purpose=snapshot.get("purpose", domain.purpose), root=root, subtopics=subtopics, hubs=hubs, notes=notes,
+            )
+
+        results = await with_heartbeat(asyncio.gather(*(place(*w) for w in work)))
+        total = 0.0
+        for slug, _notes, result in results:
+            ancestors, attach = result.value
+            outline.ancestors[slug] = ancestors
+            outline.adopt[slug] = [n.id for n in attach]
+            total += result.cost_usd
+        async with self._session_factory() as session:
+            await outline_draft_repo.save(session, job_id, outline, None)
+        await self._record(job_id, "place", "placer", total)
 
     @activity.defn
     async def store_outline(self, job_id: str, tree: Outline, feedback: str | None = None) -> list[str]:
         """Saves the owner's edited tree as the current draft. Returns what is wrong with it
         (nothing is saved then), so a bad edit keeps the job at the gate instead of failing it."""
         problems = validate_outline(tree)
+        if not problems:
+            async with self._session_factory() as session:
+                problems = await placement_service.validate_placement(session, tree)
         if problems:
             logger.warning("job %s: the edited outline was rejected: %s", job_id[:8], "; ".join(problems))
             return problems
@@ -125,7 +169,7 @@ class OutlineActivities:
         async def judge(node, slug: str):
             async with self._session_factory() as session:
                 candidates = await note_index_repo.find_candidates(
-                    session, domain_ids[slug], title=node.title, aliases=[], summary=node.summary
+                    session, domain_ids[slug], title=node.title, aliases=[], summary=node.summary, include_hubs=False
                 )
             return node, slug, await judge_overlap(self._engine, job_id=job_id, node=node, domain=slug, candidates=candidates)
 
@@ -144,4 +188,4 @@ class OutlineActivities:
         logger.info("job %s: overlap checked for %d (node, domain) pair(s); %d would merge into an existing note", job_id[:8], len(results), merges)
 
     def activities(self) -> list:
-        return [self.classify_domains, self.build_outline, self.store_outline, self.compute_overlap]
+        return [self.classify_domains, self.build_outline, self.place_topic, self.store_outline, self.compute_overlap]

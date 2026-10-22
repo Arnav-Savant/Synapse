@@ -48,6 +48,7 @@ async def upsert_note(
     topic_id: str | None = None,
     job_id: str | None = None,
     user_modified: bool = False,
+    is_hub: bool = False,
 ) -> Note:
     note = await session.get(Note, synapse_id)
     if note is None:
@@ -62,6 +63,7 @@ async def upsert_note(
     note.topic_id = topic_id
     note.job_id = job_id
     note.user_modified = user_modified
+    note.is_hub = is_hub
     await session.flush()
     return note
 
@@ -132,9 +134,17 @@ def _ts_query(*texts: str) -> str:
 
 
 async def find_candidates(
-    session: AsyncSession, domain_id: str, *, title: str, aliases: list[str], summary: str, limit: int = 8
+    session: AsyncSession,
+    domain_id: str,
+    *,
+    title: str,
+    aliases: list[str],
+    summary: str,
+    limit: int = 8,
+    include_hubs: bool = True,
 ) -> list[Candidate]:
-    """Overlap candidates within one domain, never across domains. Ranked: an
+    """Candidates within one domain, never across domains. Overlap checks leave hubs out: a hub groups topics,
+    so it is never a note that a topic could merge into or duplicate. Ranked: an
     exact title/alias match first, then full-text rank, then trigram
     similarity of the titles."""
     terms = [t.lower() for t in [title, *aliases] if t.strip()]
@@ -150,7 +160,7 @@ async def find_candidates(
                    (SELECT coalesce(max(similarity(n.title, t)), 0) FROM unnest(:terms) AS t) AS sim,
                    (:ts_query <> '' AND n.tsv @@ to_tsquery('simple', :ts_query)) AS ts_hit
             FROM notes n
-            WHERE n.domain_id = :domain_id
+            WHERE n.domain_id = :domain_id AND (:include_hubs OR NOT n.is_hub)
         ) scored
         WHERE exact OR ts_hit OR sim > 0.3
         ORDER BY exact DESC, rank DESC, sim DESC
@@ -158,7 +168,9 @@ async def find_candidates(
         """
     ).bindparams(bindparam("terms", type_=ARRAY(Text)))
     rows = (
-        await session.execute(stmt, {"terms": terms, "ts_query": ts_query, "domain_id": domain_id, "limit": limit})
+        await session.execute(
+            stmt, {"terms": terms, "ts_query": ts_query, "domain_id": domain_id, "limit": limit, "include_hubs": include_hubs}
+        )
     ).all()
     if not rows:
         return []
@@ -216,3 +228,28 @@ async def delete_note(session: AsyncSession, synapse_id: str) -> None:
     """Removes the row; its outgoing links go with it, inbound links keep their title with no id."""
     await session.execute(delete(Note).where(Note.synapse_id == synapse_id))
     await session.flush()
+
+
+async def list_hubs(session: AsyncSession, domain_id: str) -> list[tuple[Note, str | None]]:
+    """Hubs in a domain with the title of their parent hub (None for an outermost hub)."""
+    hubs = (await session.execute(select(Note).where(Note.domain_id == domain_id, Note.is_hub.is_(True)).order_by(func.lower(Note.title)))).scalars().all()
+    by_id = {h.synapse_id: h for h in hubs}
+    parents = (
+        await session.execute(
+            select(NoteLink.src_note_id, NoteLink.dst_note_id).where(NoteLink.kind == "parent", NoteLink.src_note_id.in_(list(by_id)))
+        )
+    ).all() if by_id else []
+    parent_of = {src: by_id[dst].title for src, dst in parents if dst in by_id}
+    return [(h, parent_of.get(h.synapse_id)) for h in hubs]
+
+
+async def list_top_level_notes(session: AsyncSession, domain_id: str, limit: int = 60) -> list[Note]:
+    """Notes with no parent that are not hubs: candidates to be attached under a hub."""
+    has_parent = select(NoteLink.src_note_id).where(NoteLink.kind == "parent").scalar_subquery()
+    result = await session.execute(
+        select(Note)
+        .where(Note.domain_id == domain_id, Note.is_hub.is_(False), Note.synapse_id.not_in(has_parent))
+        .order_by(func.lower(Note.title))
+        .limit(limit)
+    )
+    return list(result.scalars().all())

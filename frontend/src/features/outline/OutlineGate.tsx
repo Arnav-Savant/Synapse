@@ -13,7 +13,8 @@ import { LoadingBlock } from "../../design/Spinner";
 import { ActionBar, PageFrame } from "../../shell/PageFrame";
 import { JOBS_QUERY_KEY } from "../jobs/useJobs";
 import { OutlineTree } from "./OutlineTree";
-import { addChild, applyExclusions, setVerdict, toggleDomain } from "./outlineTree";
+import { PlacementEditor } from "./PlacementEditor";
+import { addChild, applyExclusions, setAncestors, setVerdict, toggleAdopt, toggleDomain } from "./outlineTree";
 
 export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => void }) {
   const queryClient = useQueryClient();
@@ -58,7 +59,8 @@ export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => vo
   });
 
   const kept = useMemo(() => (tree ? applyExclusions(tree, excluded) : null), [tree, excluded]);
-  const noteCount = kept ? kept.nodes.reduce((sum, n) => sum + n.domains.length, 0) : 0;
+  const newHubs = kept ? Object.values(kept.ancestors).reduce((sum, list) => sum + list.filter((a) => !a.existing_note_id).length, 0) : 0;
+  const noteCount = (kept ? kept.nodes.reduce((sum, n) => sum + n.domains.length, 0) : 0) + newHubs;
   const vaultCount = kept ? new Set(kept.nodes.flatMap((n) => n.domains)).size : 0;
   const leftOut = tree && kept ? tree.nodes.length - kept.nodes.length : 0;
 
@@ -74,7 +76,7 @@ export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => vo
     <PageFrame
       wide
       title={tree?.topic_title ?? "Outline"}
-      description="Choose what gets written. Untick a note to leave it out with everything under it, add subtopics, or ask for a different plan."
+      description="Choose where the topic sits and what gets written. Untick a note to leave it out with everything under it, add subtopics, or ask for a different plan."
       actions={<Button onClick={onBack}>Back to jobs</Button>}
     >
       {view.isLoading || !tree ? (
@@ -110,6 +112,20 @@ export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => vo
               tone="neutral"
             />
           ) : null}
+
+          {resolved.map((slug) => (
+            <PlacementEditor
+              key={slug}
+              domainName={domainNames[slug] ?? slug}
+              topicTitle={tree.topic_title}
+              ancestors={tree.ancestors[slug] ?? []}
+              attached={tree.adopt[slug] ?? []}
+              hubs={view.data!.placement[slug]?.hubs ?? []}
+              notes={view.data!.placement[slug]?.notes ?? []}
+              onAncestors={(list) => edit((t) => setAncestors(t, slug, list))}
+              onToggleNote={(id) => edit((t) => toggleAdopt(t, slug, id))}
+            />
+          ))}
 
           <Card padded={false} className="px-5 py-2">
             <OutlineTree

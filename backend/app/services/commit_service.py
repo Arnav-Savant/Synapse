@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import NoteDraft
 from app.repositories import note_draft_repo, note_index_repo
 from app.services.draft_service import DraftContext, load_context
-from app.services.note_link_index import reindex_note_links
-from app.vault.assemble import insert_link_line
+from app.services.note_link_index import parent_titles_from_text, reindex_note_links
+from app.vault.assemble import insert_link_line, set_parents
 from app.vault.frontmatter import FrontmatterError, split_frontmatter
 from app.vault.locks import vault_lock
 from app.vault.paths import VaultPathError, resolve_in_vault
@@ -50,6 +50,15 @@ class LinkAddition(BaseModel):
     entry_note: str
 
 
+class ReparentAddition(BaseModel):
+    """An existing top-level note attached under a hub by changing only its parent link; its text is untouched."""
+
+    note_id: str
+    note_title: str
+    domain_slug: str
+    hub_title: str
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -63,24 +72,79 @@ def select_drafts(drafts: list[NoteDraft], slug_of: dict[str, str], node_keys: l
 
 
 async def planned_link_additions(session: AsyncSession, ctx: DraftContext, drafts: list[NoteDraft]) -> list[LinkAddition]:
-    """Back-links an approved draft adds to the existing note it partially overlaps (`partial` verdict)."""
+    """Single lines added to EXISTING notes when these drafts are approved: a back-link in the note a new one partly
+    overlaps (`partial` verdict), and the new notes' entries in an existing hub's Subtopics."""
     slug_of = {d.id: s for s, d in ctx.domains.items()}
     additions: list[LinkAddition] = []
     for draft in drafts:
         slug = slug_of[draft.domain_id]
         node = ctx.nodes.get(draft.node_key)
-        verdict = node.verdicts.get(slug) if node else None
-        if draft.kind != "new" or verdict is None or verdict.kind != "partial" or not verdict.target_note_id:
+        if draft.kind != "new" or node is None:
             continue
-        try:
-            target = await note_index_repo.get_note(session, verdict.target_note_id)
-        except note_index_repo.NoteNotFoundError:
-            continue
-        additions.append(LinkAddition(
-            note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Related",
-            entry_title=draft.title, entry_note=verdict.reason or "overlapping topic",
-        ))
+        verdict = node.verdicts.get(slug)
+        if verdict is not None and verdict.kind == "partial" and verdict.target_note_id:
+            target = await _find_note(session, verdict.target_note_id)
+            if target is not None:
+                additions.append(LinkAddition(
+                    note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Related",
+                    entry_title=draft.title, entry_note=verdict.reason or "overlapping topic",
+                ))
+        for parent_key in node.parent_keys:
+            hub = ctx.nodes[parent_key]
+            if hub.hub and hub.reuse and slug in hub.domains:
+                target = await _find_note(session, hub.verdicts[slug].target_note_id)
+                if target is not None:
+                    additions.append(LinkAddition(
+                        note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Subtopics",
+                        entry_title=draft.title, entry_note=str((draft.frontmatter or {}).get("summary") or node.summary),
+                    ))
+    additions += await _adoption_links(ctx, drafts, slug_of, session)
     return additions
+
+
+async def _find_note(session: AsyncSession, note_id: str | None):
+    if not note_id:
+        return None
+    try:
+        return await note_index_repo.get_note(session, note_id)
+    except note_index_repo.NoteNotFoundError:
+        return None
+
+
+def _adopted(ctx: DraftContext, drafts: list[NoteDraft], slug_of: dict[str, str]):
+    """(adopted note node, the hub node it goes under) for every domain whose topic is being approved."""
+    approved = {(d.node_key, slug_of[d.domain_id]) for d in drafts}
+    for node in ctx.nodes.values():
+        if not node.key.startswith("adopt-") or not node.parent_keys:
+            continue
+        slug = node.domains[0]
+        hub = ctx.nodes[node.parent_keys[0]]
+        topic_root = next((c for c in ctx.children.get(hub.key, []) if not ctx.nodes[c].reuse), None)
+        if topic_root is not None and (topic_root, slug) in approved:
+            yield node, hub, slug
+
+
+async def _adoption_links(ctx: DraftContext, drafts: list[NoteDraft], slug_of: dict[str, str], session: AsyncSession) -> list[LinkAddition]:
+    """When the hub already exists it is not rewritten, so each attached note is added to its Subtopics line by line."""
+    out: list[LinkAddition] = []
+    for node, hub, slug in _adopted(ctx, drafts, slug_of):
+        if not (hub.hub and hub.reuse):
+            continue
+        target = await _find_note(session, hub.verdicts[slug].target_note_id)
+        if target is not None:
+            out.append(LinkAddition(
+                note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Subtopics",
+                entry_title=node.title, entry_note=node.summary,
+            ))
+    return out
+
+
+def planned_reparents(ctx: DraftContext, drafts: list[NoteDraft]) -> list[ReparentAddition]:
+    slug_of = {d.id: s for s, d in ctx.domains.items()}
+    return [
+        ReparentAddition(note_id=node.verdicts[slug].target_note_id or "", note_title=node.title, domain_slug=slug, hub_title=hub.title)
+        for node, hub, slug in _adopted(ctx, drafts, slug_of)
+    ]
 
 
 async def commit_drafts(session: AsyncSession, job_id: str, node_keys: list[str] | None) -> CommitSummary:
@@ -110,9 +174,13 @@ async def commit_drafts(session: AsyncSession, job_id: str, node_keys: list[str]
                         validator_flags=flags + [{"code": "commit_failed", "message": outcome}],
                     )
 
-            for addition in await planned_link_additions(session, ctx, [d for d, _ in written]):
+            committed_now = [d for d, _ in written]
+            for addition in await planned_link_additions(session, ctx, committed_now):
                 if addition.domain_slug == slug:
                     await _apply_link_addition(session, Path(domain.vault_path), addition)
+            for reparent in planned_reparents(ctx, committed_now):
+                if reparent.domain_slug == slug:
+                    await _apply_reparent(session, Path(domain.vault_path), reparent)
 
             await session.flush()
             for draft, key in written:  # links resolve once every new note of this vault is in the index
@@ -175,6 +243,7 @@ async def _commit_one(session: AsyncSession, vault: Path, domain_id: str, draft:
         aliases=[str(a) for a in (meta.get("aliases") or [])], summary=str(meta.get("summary") or ""),
         content_hash=content_hash, topic_id=meta.get("topic_id"), job_id=meta.get("job_id"),
         user_modified=False,  # this version began from the file on disk, so the owner's edits are in it
+        is_hub=meta.get("hub") is True,
     )
     return "committed"
 
@@ -210,3 +279,24 @@ async def discard_unselected(session: AsyncSession, job_id: str, node_keys: list
     if doomed:
         logger.info("job %s: %d unselected draft(s) discarded", job_id[:8], len(doomed))
     return len(doomed)
+
+
+async def _apply_reparent(session: AsyncSession, vault: Path, r: ReparentAddition) -> None:
+    """Adds the hub to an existing note's `parents` and `Up:` line. The body is not touched, and `user_modified`
+    stays as it was."""
+    try:
+        note = await note_index_repo.get_note(session, r.note_id)
+        path = resolve_in_vault(vault, *note.path.split("/"))
+        text = path.read_text(encoding="utf-8")
+    except (note_index_repo.NoteNotFoundError, VaultPathError, FileNotFoundError) as exc:
+        logger.warning("could not attach %r under %r (%s); skipping", r.note_title, r.hub_title, exc)
+        return
+    parents = parent_titles_from_text(text)
+    if any(p.casefold() == r.hub_title.casefold() for p in parents):
+        return
+    updated = set_parents(text, [*parents, r.hub_title])
+    if updated == text:
+        return
+    note.content_hash = write_note_atomic(path, updated)
+    await reindex_note_links(session, note, updated)
+    logger.info("note %r attached under hub %r", r.note_title, r.hub_title)

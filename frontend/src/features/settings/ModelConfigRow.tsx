@@ -2,12 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ApiError } from "../../api/client";
-import { updateAgentConfig, type AgentConfig } from "../../api/agentConfig";
+import { updateAgentConfig, type AgentConfig, type ModelOption } from "../../api/agentConfig";
 import { Button } from "../../design/Button";
 import { Field, SelectInput, TextInput } from "../../design/Field";
-import { BUDGETS, EFFORTS, MODELS, ROLE_INFO } from "./roles";
+import { BUDGETS, EFFORTS, ROLE_INFO } from "./roles";
 
-export function ModelConfigRow({ config }: { config: AgentConfig }) {
+export function ModelConfigRow({ config, models }: { config: AgentConfig; models: ModelOption[] }) {
   const queryClient = useQueryClient();
   const info = ROLE_INFO[config.agent_role] ?? { name: config.agent_role, does: "" };
   const budgets = BUDGETS[config.agent_role] ?? [];
@@ -40,14 +40,20 @@ export function ModelConfigRow({ config }: { config: AgentConfig }) {
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Model">
             {(c) => (
-              <>
-                <TextInput {...c} list={`models-${config.agent_role}`} value={model} onChange={(e) => setModel(e.target.value)} className="w-52" />
-                <datalist id={`models-${config.agent_role}`}>
-                  {MODELS.map((m) => (
-                    <option key={m} value={m} />
+              <SelectInput {...c} value={model} onChange={(e) => setModel(e.target.value)} className="w-52">
+                {/* A value saved earlier that is no longer offered stays selectable so nothing changes silently. */}
+                {models.some((m) => m.id === model) ? null : <option value={model}>{model} (not in the list)</option>}
+                <optgroup label="Pinned versions">
+                  {models.filter((m) => m.group === "pinned").map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
-                </datalist>
-              </>
+                </optgroup>
+                <optgroup label="Always the latest">
+                  {models.filter((m) => m.group === "latest").map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </optgroup>
+              </SelectInput>
             )}
           </Field>
           <Field label="Effort">
@@ -76,7 +82,7 @@ export function ModelConfigRow({ config }: { config: AgentConfig }) {
         <div className="mt-3 flex items-center gap-3">
           {dirty ? (
             <>
-              <Button variant="primary" size="sm" loading={save.isPending} disabled={!model.trim() || Boolean(badBudget)} onClick={() => save.mutate()}>
+              <Button variant="primary" size="sm" loading={save.isPending} disabled={Boolean(badBudget)} onClick={() => save.mutate()}>
                 Save
               </Button>
               {badBudget ? <span className="text-[13px] text-danger">{badBudget.label} must be a whole number above zero.</span> : null}

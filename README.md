@@ -22,7 +22,11 @@ your own Claude subscription.
 - **Domains, each with its own vault.** A domain is an area you study, such as
   System Design or DSA. Each has a profile that sets how deep its notes go, what
   is in scope and what tone to use. You define your own.
-- **A dense graph, not a pile of files.** New material that overlaps an existing
+- **A hierarchy, not a pile of files.** Each topic sits under a hub, a short overview note that
+  groups related topics (for example *Database internals*). Synapse reuses an existing hub when one
+  fits, creates a new one only when none does, never stacks more than two levels, and can attach notes
+  you already have to a new hub.
+- **A dense graph.** New material that overlaps an existing
   note is merged into it, or linked to it. Every note links to its parent, its
   subtopics and related notes.
 - **Your edits are safe.** Edit notes in Obsidian whenever you like. Synapse

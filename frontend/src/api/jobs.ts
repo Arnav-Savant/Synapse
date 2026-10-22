@@ -9,6 +9,14 @@ export interface OverlapVerdict {
   reason: string;
 }
 
+/** One hub level above the topic's top note. A hub is a short overview note that groups related topics. */
+export interface Ancestor {
+  title: string;
+  summary: string;
+  /** Set when this reuses a hub that already exists in the vault. */
+  existing_note_id: string | null;
+}
+
 export interface OutlineNode {
   key: string;
   title: string;
@@ -19,11 +27,36 @@ export interface OutlineNode {
   content_slice: string | null;
   /** Keyed by domain slug. */
   verdicts: Record<string, OverlapVerdict>;
+  hub: boolean;
+  reuse: boolean;
 }
 
 export interface Outline {
   topic_title: string;
   nodes: OutlineNode[];
+  /** Per domain slug: hub levels above the topic, outermost first (up to two). */
+  ancestors: Record<string, Ancestor[]>;
+  /** Per domain slug: existing top-level notes to attach under the innermost hub. */
+  adopt: Record<string, string[]>;
+}
+
+export interface HubInfo {
+  id: string;
+  title: string;
+  summary: string;
+  /** The hub it sits under, if any. */
+  parent_title: string | null;
+}
+
+export interface NoteBrief {
+  id: string;
+  title: string;
+  summary: string;
+}
+
+export interface PlacementOptions {
+  hubs: HubInfo[];
+  notes: NoteBrief[];
 }
 
 /** Mirrors backend/app/schemas/jobs.py. */
@@ -62,6 +95,8 @@ export interface JobDetail extends Job {
 
 export interface OutlineView {
   outline: Outline;
+  /** Per domain slug: what the vault offers to attach the topic to. */
+  placement: Record<string, PlacementOptions>;
   resolved_domains: string[];
   classifier_confidence: number | null;
   /** Below the classifier threshold: the owner should confirm the domain. */
@@ -97,9 +132,17 @@ export interface LinkAddition {
   entry_title: string;
 }
 
+export interface Attachment {
+  note_title: string;
+  hub_title: string;
+  domain_slug: string;
+}
+
 export interface DraftsResponse {
   drafts: Draft[];
   link_additions: LinkAddition[];
+  /** Existing notes that approving attaches under a hub by changing only their parent link. */
+  attachments: Attachment[];
 }
 
 /** Mirrors backend/app/workflows/models.py. */

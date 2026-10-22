@@ -70,6 +70,18 @@ authoring engine.
   times as they like.
 - FR3.5 An outline edit that makes the tree invalid is refused with the reason
   and the job stays at this step.
+- FR3.6 Each topic is placed, per domain, under zero, one or two hub levels. A hub is a
+  short overview note that groups related topics. A placement agent proposes the fewest
+  levels that make sense and reuses an existing hub whenever one fits; it proposes a new hub
+  only when none fits and the area would hold several topics. More than two levels are never
+  allowed.
+- FR3.7 The proposed hub path is shown at the outline approval, marked as existing or new, and
+  the owner can pick a different hub, rename or describe a new one, add or remove a level, or
+  leave the topic with no hub.
+- FR3.8 Existing top-level notes that belong beside the topic can be attached under the innermost
+  hub. Attaching changes only a note's parent link, never its text.
+- FR3.9 A new hub is written like an overview note (short, no research). An existing hub is not
+  rewritten: the new topic is added to its Subtopics list by one inserted line.
 
 ### FR4: Research and writing
 - FR4.1 For a topic, each leaf is researched on the web into a dossier of facts
@@ -122,6 +134,8 @@ authoring engine.
   a body, and `Subtopics`, `Related` and `References` lists. Links are Obsidian
   wikilinks.
 - FR7.3 No note is ever linked across vaults.
+- FR7.5 A hub carries `hub: true` in its frontmatter and lives in the vault's `Hubs` folder. An owner can
+  make any note a hub by adding `hub: true`.
 - FR7.4 Every file path is verified to be inside its domain's vault before it is
   written.
 
@@ -150,8 +164,9 @@ authoring engine.
   is a merge against the file on disk.
 
 ### FR10: Settings
-- FR10.1 Each of the ten agent roles has its own model and effort, editable in the
-  app. The researcher and planner also expose their web-search budgets.
+- FR10.1 Each of the eleven agent roles has its own model and effort, editable in the
+  app. The model is chosen from the list Claude Code accepts (pinned versions and
+  "latest" aliases); any other value is refused. The researcher and planner also expose their web-search budgets.
 - FR10.2 Domain management as in FR1.
 
 ## 4. Non-functional requirements

@@ -46,10 +46,15 @@ export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLI
   );
 }
 
-export function TextArea({ className = "", ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  /** Let the person drag the corner to resize. Off gives a fixed box that scrolls inside. */
+  resizable?: boolean;
+}
+
+export function TextArea({ className = "", resizable = true, ...rest }: TextAreaProps) {
   return (
     <textarea
-      className={`${CONTROL} min-h-24 resize-y py-2 leading-relaxed ${rest["aria-invalid"] ? invalid : normal} ${className}`}
+      className={`${CONTROL} ${resizable ? "min-h-24 resize-y" : "resize-none"} overflow-y-auto py-2 leading-relaxed ${rest["aria-invalid"] ? invalid : normal} ${className}`}
       {...rest}
     />
   );

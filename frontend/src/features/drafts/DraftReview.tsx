@@ -86,10 +86,15 @@ export function DraftReview({ jobId, onBack }: { jobId: string; onBack: () => vo
         <div className="grid items-start gap-8 lg:grid-cols-[21rem_minmax(0,1fr)]">
           <div className="flex flex-col gap-6 lg:sticky lg:top-6">
             <DraftList drafts={list} domainNames={domainNames} selected={selected} activeKey={activeKey} onToggle={toggle} onOpen={(k) => { setActiveKey(k); setTab(null); }} />
-            {(drafts.data!.link_additions.length > 0) ? (
+            {(drafts.data!.link_additions.length > 0 || drafts.data!.attachments.length > 0) ? (
               <section aria-labelledby="existing-heading">
                 <h3 id="existing-heading" className="mb-1 text-sm font-semibold text-muted">Also changes existing notes</h3>
                 <ul className="flex flex-col gap-1 text-sm">
+                  {drafts.data!.attachments.map((a, i) => (
+                    <li key={`attach-${i}`} className="text-muted">
+                      Attaches <span className="font-medium text-fg">[[{a.note_title}]]</span> under <span className="font-medium text-fg">[[{a.hub_title}]]</span>
+                    </li>
+                  ))}
                   {drafts.data!.link_additions.map((a, i) => (
                     <li key={i} className="text-muted">
                       Adds a link to <span className="font-medium text-fg">[[{a.entry_title}]]</span> in <span className="font-medium text-fg">[[{a.note_title}]]</span>

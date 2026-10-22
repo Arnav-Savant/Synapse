@@ -38,7 +38,7 @@ Each job shows a seven-stage trail:
 | Stage | What is happening |
 |---|---|
 | Classify | Working out which domain the input belongs to |
-| Outline | Drafting the outline and checking for notes you already have |
+| Outline | Drafting the outline, choosing where the topic sits, and checking for notes you already have |
 | Research | Researching each subtopic (skipped for pasted material) |
 | Write | Writing notes, then finding references and related links |
 | Check | A reviewer agent checks every draft |
@@ -59,6 +59,15 @@ while it is active.
 When a job reaches **Needs you** at the Outline stage, open it. You see the
 proposed notes as an indented tree, with the domain Synapse chose.
 
+- **Where the topic sits.** Above the tree, Synapse shows which hub(s) the topic goes under, for
+  example *Database internals* above *Buffer pool management*. A hub is a short overview note
+  that groups related topics. It is marked **Existing hub** when it is already in your vault, or
+  **New hub** when Synapse proposes to create it. It uses as few levels as make sense (none, one or
+  two) and reuses a hub you already have whenever one fits. You can pick a different hub, write the
+  title and one-line summary of a new one, add or remove a level, or leave the topic with no hub.
+  When a hub is chosen, the notes you already have that sit at the top level appear as a checklist:
+  tick the ones that belong in the same area to attach them under the hub. Only their parent link
+  changes; their text is not touched.
 - **Untick a note** to leave it out together with everything beneath it. Tick it
   again to bring it back. The overview note at the top is always written.
 - **Add subtopic** under any note to add a note of your own.
@@ -93,8 +102,8 @@ to read it on the right:
   automatic checks found: scope creep, a missing section, a claim with no
   support, a link to a note that does not exist, and so on. Notes with something
   to check carry a chip in the list.
-- **Also changes existing notes** lists the small link additions that approving
-  will make in notes you already have.
+- **Also changes existing notes** lists the small additions that approving will make in notes
+  you already have: a link added to a hub's Subtopics, and existing notes attached under a hub.
 
 To ask for changes, use the form under the note: choose whether the change
 applies to **one section**, **this whole note** or **the whole topic**, say what
@@ -143,7 +152,9 @@ Up: [[Anomalies]]
 - [PostgreSQL: Transaction Isolation](https://…): the official description
 ```
 
-- The **file name is the note title**, and titles are unique within a vault.
+- The **file name is the note title**, and titles are unique within a vault. Hubs sit together in a
+  `Hubs` folder and have `hub: true` in their frontmatter; a topic's notes sit in a folder named
+  after its top note.
 - **Up** links to the note's parent; **Subtopics** lists its children;
   **Related** holds cross-links that make the graph dense; **References** lists
   credible sources, official documentation first.
@@ -154,7 +165,8 @@ Up: [[Anomalies]]
 
 ## Notes
 
-**Notes** lists what Synapse has written to a vault, with a search box. A note
+**Notes** lists what Synapse has written to a vault, with a search box. A hub is
+marked **Hub**. A note
 you changed in Obsidian after Synapse wrote it is marked **Edited by you**; one
 that also exists in another vault shows **Also in …**.
 
@@ -190,7 +202,9 @@ renaming a domain does not rename its folder. Deleting a domain removes its
 settings but never its notes or folder, and is refused while a job is using it.
 
 **Models.** Each agent role has its own Claude model and effort level, listed
-with what it does. The researcher and the outline planner also have budgets for
+with what it does. The model is chosen from a dropdown of what Claude Code
+offers: pinned versions such as *Opus 5.5*, or *latest* options such as *Opus
+(latest)* that follow the newest release. The researcher and the outline planner also have budgets for
 web searches. Changes apply to jobs from then on.
 
 ## Good to know

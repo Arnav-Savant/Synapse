@@ -26,7 +26,7 @@ from app.engines.base import AgentEngine
 from app.repositories import agent_config_repo, domain_repo, job_repo, note_draft_repo, note_index_repo, outline_draft_repo
 from app.schemas.domains import DomainProfile
 from app.schemas.dossier import Dossier, ResearchBudget
-from app.schemas.outline import Outline, OutlineNode
+from app.schemas.outline import Outline, OutlineNode, OverlapVerdict
 from app.schemas.validation import Issue, NoteVerdict, RoundSummary
 from app.services.draft_rules import check_draft_rules
 from app.services.note_link_index import parent_titles_from_text
@@ -41,6 +41,7 @@ from app.workflows.models import PlanInfo, PlanNode, round_key
 
 logger = logging.getLogger(__name__)
 
+HUB_FOLDER = "Hubs"  # every hub of a vault lives in this one folder
 _TOPIC_NAMESPACE = uuid.UUID("6f0d1a52-0a8e-4c57-9d5e-2b6e1f6f3a10")
 _SOURCE_TITLE_UNSAFE = str.maketrans({"[": "(", "]": ")"})
 
@@ -65,10 +66,47 @@ async def load_context(session: AsyncSession, job_id: str) -> DraftContext:
     domains = {slug: await domain_repo.get_by_slug(session, slug) for slug in job.resolved_domains}
     ctx = DraftContext(job=job, outline=outline, domains=domains)
     ctx.nodes = {n.key: n for n in outline.nodes}
-    for n in outline.nodes:
+    await _add_placement_nodes(session, ctx)
+    for n in ctx.nodes.values():
         for parent in n.parent_keys:
             ctx.children.setdefault(parent, []).append(n.key)
     return ctx
+
+
+async def _add_placement_nodes(session: AsyncSession, ctx: DraftContext) -> None:
+    """Turns the chosen hub path into nodes above the topic's top note, per domain. A new hub is a node that
+    gets written; an existing hub, and any existing note attached beside the topic, is a `reuse` node that only
+    supplies its title and is never rewritten. Changes the in-memory outline only."""
+    root = next((n for n in ctx.outline.nodes if not n.parent_keys), None)
+    for slug in ctx.job.resolved_domains:
+        previous: str | None = None
+        for i, ancestor in enumerate(ctx.outline.ancestors.get(slug, [])):
+            note = await _existing_note(session, ancestor.existing_note_id, ancestor.title) if ancestor.existing_note_id else None
+            key = f"hub-{slug}-{i}"
+            ctx.nodes[key] = OutlineNode(
+                key=key, title=ancestor.title, summary=ancestor.summary or (note.summary if note else ""),
+                parent_keys=[previous] if previous else [], domains=[slug], hub=True, reuse=note is not None,
+                verdicts={slug: OverlapVerdict(kind="same", target_note_id=note.synapse_id)} if note else {},
+            )
+            previous = key
+        if previous is None:
+            continue
+        if root is not None:
+            root.parent_keys.append(previous)
+        for j, note_id in enumerate(ctx.outline.adopt.get(slug, [])):
+            note = await _existing_note(session, note_id, note_id)
+            key = f"adopt-{slug}-{j}"
+            ctx.nodes[key] = OutlineNode(
+                key=key, title=note.title, summary=note.summary, parent_keys=[previous], domains=[slug], reuse=True,
+                verdicts={slug: OverlapVerdict(kind="same", target_note_id=note.synapse_id)},
+            )
+
+
+async def _existing_note(session: AsyncSession, note_id: str, label: str) -> Note:
+    try:
+        return await note_index_repo.get_note(session, note_id)
+    except note_index_repo.NoteNotFoundError as exc:
+        raise ValueError(f"the note {label!r} chosen as a hub or attachment no longer exists; place the topic again") from exc
 
 
 def plan_info(ctx: DraftContext, max_parallel: int) -> PlanInfo:
@@ -88,7 +126,8 @@ def plan_info(ctx: DraftContext, max_parallel: int) -> PlanInfo:
                 key=n.key, title=n.title, parent_keys=n.parent_keys, domains=n.domains,
                 is_leaf=not ctx.children.get(n.key), height=height(n.key),
             )
-            for n in ctx.outline.nodes
+            for n in ctx.nodes.values()
+            if not n.reuse  # an existing hub or attached note is used as it is, never written
         ],
     )
 
@@ -116,10 +155,13 @@ async def folder_for(session: AsyncSession, ctx: DraftContext, node: OutlineNode
     target = await merge_target(session, node, slug)
     if target:
         return posixpath.dirname(target.path)
+    if node.hub:
+        return HUB_FOLDER
     for parent_key in node.parent_keys:
         parent = ctx.nodes[parent_key]
         if slug in parent.domains:
-            return await folder_for(session, ctx, parent, slug)
+            # A topic under a hub gets its own folder; the hub's folder holds hubs only.
+            return sanitize_title(node.title) if parent.hub else await folder_for(session, ctx, parent, slug)
     return sanitize_title(node.title)
 
 
@@ -227,7 +269,8 @@ async def write_draft(
             child_info.append((await effective_title(session, ctx.nodes[k], slug), summary or ctx.nodes[k].summary))
         result = await write_synthesis(
             engine, job_id=ctx.job.id, node=node, domain_slug=slug, children=child_info, profile=profile,
-            existing_text=existing_text, prior_draft=prior_text, feedback=feedback,
+            existing_text=existing_text, prior_draft=prior_text, feedback=feedback, hub=node.hub,
+            top=not any(not ctx.nodes[pk].hub for pk in node.parent_keys),
         )
     body = result.value
     parents = await parent_titles(session, ctx, node, slug)
@@ -242,7 +285,8 @@ async def write_draft(
         meta = {
             "synapse_id": synapse_id,
             "topic_id": str(uuid.uuid5(_TOPIC_NAMESPACE, f"{ctx.job.id}:{node_key}")) if len(node.domains) > 1 else None,
-            "domain": slug, "aliases": body.aliases, "summary": body.summary, "job_id": ctx.job.id, "created": date.today(),
+            "domain": slug, "hub": True if node.hub else None, "aliases": body.aliases, "summary": body.summary,
+            "job_id": ctx.job.id, "created": date.today(),
         }
         text = assemble_note(NoteParts(title=title, meta=meta, body=body.render(), parents=parents, children=subtopics))
     if previous is not None and previous.body_md:
@@ -333,7 +377,7 @@ async def check_draft(
     slug = next(s for s, d in ctx.domains.items() if d.id == draft.domain_id)
     result = await validate_note(
         engine, job_id=ctx.job.id, note_text=strip_link_sections(draft.body_md), node=node, profile=ctx.profile(slug),
-        dossier=_dossier_of(draft),
+        dossier=_dossier_of(draft), note_kind="hub" if node.hub else "overview" if ctx.children.get(node.key) else "detailed",
     )
     issues += result.value.issues
     return NoteVerdict(ok=not issues, issues=issues), result.cost_usd

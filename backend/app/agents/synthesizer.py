@@ -27,11 +27,18 @@ async def write_synthesis(
     existing_text: str | None = None,
     prior_draft: str | None = None,
     feedback: str | None = None,
+    hub: bool = False,
+    top: bool | None = None,
 ) -> RunResult[NoteBody]:
     """`children` is (title, one-line summary) of what was actually written. The
     Subtopics list is added by code, so the body must not list the children."""
-    is_top = not node.parent_keys
+    is_top = (not node.parent_keys) if top is None else top  # the top note of a topic, which may itself sit under a hub
     role_text = (
+        "This is a HUB note: a short orientation to one area of the domain that groups related topics. Say what the area "
+        "covers, why it is worth studying as a whole, and how its topics relate or in what order to read them. Keep it "
+        "brief (a few paragraphs at most); the topics themselves hold the detail."
+        if hub
+        else
         "This is the TOP note of the topic: frame it. Give the big picture, why the topic matters, how its groups of "
         "subtopics relate to each other, and a suggested reading order."
         if is_top

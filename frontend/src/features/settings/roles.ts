@@ -1,10 +1,10 @@
-export const MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 /** What each agent does, in the words of the person reading the settings. */
 export const ROLE_INFO: Record<string, { name: string; does: string }> = {
   classifier: { name: "Domain classifier", does: "Picks which domain your input belongs to." },
   planner: { name: "Outline planner", does: "Proposes the outline for a topic after a light web scan." },
+  placer: { name: "Topic placer", does: "Decides which hub a topic sits under, and which existing notes belong beside it." },
   structurer: { name: "Outline splitter", does: "Splits pasted material into an outline." },
   researcher: { name: "Researcher", does: "Researches each subtopic on the web." },
   linker: { name: "Overlap and links", does: "Spots notes that already cover something and picks related links." },

@@ -76,6 +76,7 @@ def _fields(meta: dict) -> dict:
         "summary": str(meta.get("summary") or ""),
         "topic_id": str(meta["topic_id"]) if meta.get("topic_id") else None,
         "job_id": str(meta["job_id"]) if meta.get("job_id") else None,
+        "is_hub": meta.get("hub") is True,
     }
 
 

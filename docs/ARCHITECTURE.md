@@ -75,7 +75,7 @@ Workflow activities are thin: they take ids, load state, call a service, and rec
 
 1. Check that `VAULTS_ROOT` is an absolute, existing, writable directory (otherwise exit).
 2. Apply database migrations (`alembic upgrade head`).
-3. Seed the ten agent role rows that do not exist yet.
+3. Seed the eleven agent role rows that do not exist yet.
 4. If no domain exists, create the three starter domains and their vault folders.
 5. Reconcile every vault with the note index (§10).
 6. Connect to Temporal, retrying for about fifteen seconds (otherwise exit with a hint).
@@ -95,13 +95,13 @@ All tables live in one Postgres instance, which Temporal shares for its own data
 | `agent_configs` | per role: model, effort, `params` (JSON budgets) |
 | `jobs` | input kind and text, domain choice, resolved domains, status, current step, awaiting-owner flag, error, total cost, workflow id, profile snapshot, classifier confidence |
 | `step_runs` | an audit row per step: step, agent role, attempt, status, cost, error. Prompts and outputs are not kept. |
-| `outline_drafts` | one row per job: the outline tree (JSON) and last feedback. Overwritten on every re-plan. |
+| `outline_drafts` | one row per job: the outline tree with its hub placement per domain (JSON) and last feedback. Overwritten on every re-plan. |
 | `note_drafts` | one row per job, domain and node: assembled file text, title, parents, frontmatter, kind (`new` or `merge`), target path, merge target and base hash, validator flags, dossier, stage (`researched`, `written`, `validated`, `stale`) |
-| `notes` | the index: id, domain, title, path (relative to the vault), aliases, summary, content hash, topic id, creating job, `user_modified`, and a generated full-text vector |
+| `notes` | the index: id, domain, title, path (relative to the vault), aliases, summary, content hash, topic id, creating job, `user_modified`, `is_hub`, and a generated full-text vector |
 | `note_links` | the index of links between notes: source, destination (if resolved), destination title, kind (`parent`, `related`, `body`) |
 
 Job statuses are `queued`, `running`, `awaiting_owner`, `completed`, `failed`,
-`cancelled`. Steps are `classify`, `outline`, `overlap`, `outline_gate`, `research`,
+`cancelled`. Steps are `classify`, `outline`, `place`, `overlap`, `outline_gate`, `research`,
 `write`, `references`, `related`, `validate`, `draft_gate`, `commit`.
 
 `notes` has a full-text GIN index, a trigram index on the title (`pg_trgm`), and a
@@ -116,7 +116,7 @@ workflows use the task queue `synapse-ingest`.
 ### 5.1 Steps
 
 ```
-queued ─▶ classify ─▶ outline ─▶ overlap ─▶ OUTLINE GATE ─▶ research* ─▶ write ─▶ references ─▶ related ─▶ validate ─▶ DRAFT GATE ─▶ commit ─▶ completed
+queued ─▶ classify ─▶ outline ─▶ place ─▶ overlap ─▶ OUTLINE GATE ─▶ research* ─▶ write ─▶ references ─▶ related ─▶ validate ─▶ DRAFT GATE ─▶ commit ─▶ completed
                                                 │  re-plan ◀┘                       (leaves, parents, top)        └ rewrite failing notes ◀┘    │ feedback ◀┘
 * topic jobs only
 ```
@@ -125,6 +125,7 @@ queued ─▶ classify ─▶ outline ─▶ overlap ─▶ OUTLINE GATE ─▶ 
 |---|---|---|
 | classify | Choose the domain(s) when the owner picked Auto-detect; skipped when a domain was chosen or only one domain exists | classifier |
 | outline | Propose the tree | planner (topic) or structurer (pasted content) |
+| place | Per domain, decide the hub path above the topic (none, one or two levels) and which existing top-level notes to attach beside it | placer |
 | overlap | Per node and domain, find candidate existing notes and judge same, partial or distinct | linker |
 | outline_gate | Wait for the owner | none |
 | research | Per leaf, in parallel: facts and sources | researcher |
@@ -202,8 +203,15 @@ in Settings. The defaults:
 | `reference_finder` | Rank and annotate references | web | Haiku, low |
 | `validator` | Judge scope, depth and accuracy | none | Sonnet, high |
 | `profile_builder` | Draft a domain profile | none | Sonnet, medium |
+| `placer` | Choose the hub path above a topic and which existing notes join it | none | Sonnet, low |
 
 "Web" means `WebSearch` and `WebFetch`, and nothing else.
+
+The models a role may use are a fixed list in `agent_config_service`: four pinned versions (Fable 5.1,
+Opus 5.5, Sonnet 5.5, Haiku 5.5) and the four aliases that track the newest release (`fable`, `opus`,
+`sonnet`, `haiku`). The CLI has no command that lists models, so the list follows Claude Code's model
+documentation; the settings screen reads it from `GET /agent-configs/models`, and an update with any other
+value is rejected. All of them support the five effort levels.
 
 ### 6.1 The engine
 
@@ -304,7 +312,9 @@ one vault run under a per-domain lock.
 means the owner edited it. The index repository flushes but never commits, so a commit can
 update notes and links in one transaction.
 
-## 8. Overlap and merging
+## 8. Overlap, merging and placement
+
+### 8.1 Overlap
 
 Overlap is judged on meaning, in two stages.
 
@@ -319,10 +329,47 @@ Overlap is judged on meaning, in two stages.
 Verdicts are per node and per domain, so one node can merge in one vault and be new in
 another. The owner can override any verdict at the outline gate.
 
+### 8.2 Merging
+
 A **merge** draft starts from the file as it is on disk now, including the owner's edits.
 The writer returns an updated body; code replaces only the body, leaves the frontmatter, the
 `Up:` line and the link lists in place, and adds new parents, subtopics, aliases, related
 links and references without removing anything.
+
+### 8.3 Hubs and placement
+
+A **hub** is a short overview note that groups related topics, such as *Database internals* above
+*Buffer pool management* and *Write-ahead logging*. It is an ordinary note with `hub: true` in its
+frontmatter (indexed as `notes.is_hub`) and lives in the vault's `Hubs` folder. A topic's notes live in
+a folder of their own, named after its top note.
+
+After the outline is drafted, the **placer** receives the domain, the topic and its subtopics, the
+hubs that already exist (as a tree with their summaries) and the existing top-level notes that are not
+under any hub. It returns a path of hubs above the topic, outermost first, and the existing notes to
+attach beside it. The rules are enforced in code, and a violation becomes a specific re-ask:
+
+- at most two levels, and zero or one are fine; an existing hub must be copied exactly from the list,
+  and an existing hub can sit only under another existing hub that really is its parent;
+- a new hub needs a title and a one-line summary and may not duplicate a hub, or a note of any kind, that
+  is already in the vault;
+- attached notes must come from the list and need a hub to go under (at most eight).
+
+The result is stored on the outline per domain (`ancestors`, `adopt`), shown at the outline gate, and
+editable there. Edits go through the same checks, including a re-check when the owner approves. A re-plan
+keeps the owner's placement.
+
+When drafts are built, the path is expanded into extra nodes above the topic's top note. A **new** hub is
+written like any overview note, with no research. An **existing** hub, and each attached note, is a
+`reuse` node: it supplies its title and is never rewritten. Committing then does only single-line work on
+existing files:
+
+- the topic's top note is added to an existing hub's `## Subtopics` by one inserted line (as is each
+  attached note);
+- each attached note gets the hub added to its `parents` and its `Up:` line, and nothing else changes in it.
+
+Both are listed at the draft gate before anything is approved. A new hub's own `## Subtopics` is generated
+like any parent note's, and includes the attached notes. Later topics see the hub as an existing one and
+attach to it the same way.
 
 ## 9. Commit
 
@@ -386,9 +433,10 @@ All routes are under `/api`.
 | `GET /health` | Liveness |
 | `GET /domains`, `POST /domains`, `PUT /domains/{slug}`, `DELETE /domains/{slug}` | Domain management |
 | `POST /domains/draft-profile` | Draft a profile with Claude; saves nothing |
-| `GET /agent-configs`, `PUT /agent-configs/{role}` | Per-role model, effort and budgets |
+| `GET /agent-configs`, `PUT /agent-configs/{role}` | Per-role model, effort and budgets; a model outside the allowed list is refused |
+| `GET /agent-configs/models` | The models a role can be set to |
 | `POST /jobs`, `GET /jobs`, `GET /jobs/{id}` | Submit a job, list jobs, one job with its steps |
-| `GET /jobs/{id}/outline`, `POST /jobs/{id}/outline-decision` | The outline gate |
+| `GET /jobs/{id}/outline`, `POST /jobs/{id}/outline-decision` | The outline gate; the view includes, per domain, the hubs and top-level notes the topic can be placed with |
 | `GET /jobs/{id}/drafts`, `POST /jobs/{id}/draft-decision` | The draft gate |
 | `POST /jobs/{id}/cancel` | Cancel a job |
 | `GET /notes?domain=&q=` | List and search notes |
@@ -461,6 +509,8 @@ Note bodies, prompts, fetched web content and secrets are never logged; sizes an
 | Quality rewrite rounds | 2 |
 | Temporal attempts per activity | 3 |
 | Overlap candidates per node | 8 |
+| Hub levels above a topic | 0 to 2 |
+| Existing notes attached under a hub at once | 8 |
 | References per note | at most 8 |
 | Note title length | 120 characters |
 

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { fetchAgentConfigs } from "../../api/agentConfig";
+import { fetchAgentConfigs, fetchModels } from "../../api/agentConfig";
 import { listDomains, type Domain } from "../../api/domains";
 import { Button } from "../../design/Button";
 import { Card } from "../../design/Card";
@@ -50,9 +50,11 @@ export function SettingsPage() {
 
 function Models() {
   const configs = useQuery({ queryKey: ["agent-configs"], queryFn: fetchAgentConfigs });
-  if (configs.isLoading) return <LoadingBlock label="Loading model settings" />;
-  if (configs.isError) {
-    return <EmptyState tone="error" title="Could not load the model settings" hint={`${configs.error.message} Check that the backend is running.`} action={<Button onClick={() => configs.refetch()}>Try again</Button>} />;
+  const models = useQuery({ queryKey: ["agent-models"], queryFn: fetchModels, staleTime: Infinity });
+  if (configs.isLoading || models.isLoading) return <LoadingBlock label="Loading model settings" />;
+  if (configs.isError || models.isError) {
+    const error = configs.error ?? models.error;
+    return <EmptyState tone="error" title="Could not load the model settings" hint={`${error?.message} Check that the backend is running.`} action={<Button onClick={() => { configs.refetch(); models.refetch(); }}>Try again</Button>} />;
   }
   const order = Object.keys(ROLE_INFO);
   const rows = [...configs.data!].sort((a, b) => order.indexOf(a.agent_role) - order.indexOf(b.agent_role));
@@ -60,7 +62,7 @@ function Models() {
     <Card padded={false}>
       <ul className="divide-y divide-line">
         {rows.map((c) => (
-          <ModelConfigRow key={c.agent_role} config={c} />
+          <ModelConfigRow key={c.agent_role} config={c} models={models.data!} />
         ))}
       </ul>
     </Card>

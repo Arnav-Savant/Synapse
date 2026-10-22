@@ -10,7 +10,7 @@ from temporalio.client import Client
 
 from app.core.postgres_connection import postgres_connection
 from app.db.models import Job
-from app.repositories import job_repo, note_draft_repo, outline_draft_repo, step_run_repo
+from app.repositories import domain_repo, job_repo, note_draft_repo, outline_draft_repo, step_run_repo
 from app.schemas.jobs import (
     CLASSIFIER_CONFIDENCE_THRESHOLD,
     CreateJobRequest,
@@ -19,12 +19,14 @@ from app.schemas.jobs import (
     JobDetail,
     JobListResponse,
     JobOut,
+    AttachmentView,
     LinkAdditionView,
     OutlineView,
+    PlacementOptions,
     StepRunOut,
 )
 from app.schemas.outline import validate_outline
-from app.services import commit_service, draft_service, job_service
+from app.services import commit_service, draft_service, job_service, placement_service
 from app.services.job_service import InvalidJobInputError, JobStateError
 from app.vault.paths import VaultPathError, resolve_in_vault
 from app.workflows.models import DraftDecision, OutlineDecision
@@ -84,8 +86,12 @@ async def get_outline(job_id: str, session: AsyncSession = Depends(postgres_conn
     if outline is None:
         raise JobStateError("this job has no outline right now")
     confidence = job.classifier_confidence
+    placement: dict[str, PlacementOptions] = {}
+    for slug in job.resolved_domains or []:
+        hubs, notes = await placement_service.load_options(session, (await domain_repo.get_by_slug(session, slug)).id)
+        placement[slug] = PlacementOptions(hubs=hubs, notes=notes)
     return OutlineView(
-        outline=outline, resolved_domains=job.resolved_domains or [], classifier_confidence=confidence,
+        outline=outline, placement=placement, resolved_domains=job.resolved_domains or [], classifier_confidence=confidence,
         low_confidence=confidence is not None and confidence < CLASSIFIER_CONFIDENCE_THRESHOLD,
         error=job.error if job.status == "awaiting_owner" else None,
     )
@@ -97,7 +103,7 @@ async def outline_decision(
     session: AsyncSession = Depends(postgres_connection.get_session), client: Client = Depends(get_temporal),
 ) -> dict:
     if decision.kind == "approve":
-        problems = validate_outline(decision.tree)
+        problems = validate_outline(decision.tree) or await placement_service.validate_placement(session, decision.tree)
         if problems:
             raise InvalidJobInputError("that outline cannot be approved: " + "; ".join(problems))
     await job_service.send_outline_decision(session, client, job_id, decision)
@@ -131,7 +137,9 @@ async def get_drafts(job_id: str, session: AsyncSession = Depends(postgres_conne
         for d in drafts
     ]
     additions = await commit_service.planned_link_additions(session, ctx, drafts)
+    attachments = commit_service.planned_reparents(ctx, drafts)
     return DraftsResponse(
+        attachments=[AttachmentView(note_title=a.note_title, hub_title=a.hub_title, domain_slug=a.domain_slug) for a in attachments],
         drafts=views,
         link_additions=[
             LinkAdditionView(note_title=a.note_title, domain_slug=a.domain_slug, section=a.section, entry_title=a.entry_title)

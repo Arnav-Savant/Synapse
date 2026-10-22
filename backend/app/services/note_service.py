@@ -24,7 +24,7 @@ async def list_notes(session: AsyncSession, slug: str, q: str | None) -> list[No
     return [
         NoteOut(
             synapse_id=n.synapse_id, title=n.title, path=n.path, summary=n.summary, domain_slug=slug,
-            user_modified=n.user_modified, job_id=n.job_id,
+            user_modified=n.user_modified, is_hub=n.is_hub, job_id=n.job_id,
             twin_domains=sorted({slug_by_id[t.domain_id] for t in twins if t.topic_id == n.topic_id and t.domain_id != domain.id}) if n.topic_id else [],
         )
         for n in notes

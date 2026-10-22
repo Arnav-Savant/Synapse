@@ -15,6 +15,7 @@ export const STAGES = [
 const STAGE_OF_STEP: Record<string, number> = {
   classify: 0,
   outline: 1,
+  place: 1,
   overlap: 1,
   outline_gate: 1,
   research: 2,
@@ -48,6 +49,7 @@ export function trailFor(job: Pick<Job, "status" | "current_step" | "input_kind"
 const RUNNING_TEXT: Record<string, string> = {
   classify: "Working out which domain this belongs to",
   outline: "Drafting the outline",
+  place: "Working out where the topic sits",
   overlap: "Checking for notes that already cover this",
   research: "Researching each subtopic",
   write: "Writing the notes",

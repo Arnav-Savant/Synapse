@@ -81,7 +81,7 @@ export function DomainForm({ domain, onDone, onCancel }: DomainFormProps) {
         <p className="text-sm text-muted">
           Fill in whatever you know below (or paste the prompt you already use to study this subject), and Claude fills the gaps. Nothing is saved until you press Save.
         </p>
-        <TextArea aria-label="Prompt to learn from" rows={3} placeholder="Optional: paste a study prompt" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+        <TextArea resizable={false} aria-label="Prompt to learn from" rows={3} placeholder="Optional: paste a study prompt" value={pasted} onChange={(e) => setPasted(e.target.value)} />
         <div className="flex items-center gap-3">
           <Button loading={draft.isPending} disabled={!name.trim() && !purpose.trim() && !pasted.trim() && !profile.objective.trim()} onClick={() => draft.mutate()}>
             Draft with Claude
@@ -92,7 +92,7 @@ export function DomainForm({ domain, onDone, onCancel }: DomainFormProps) {
       </div>
 
       <Field label="Objective" hint="What the notes are for, and how deep they should go.">
-        {(c) => <TextArea {...c} rows={3} value={profile.objective} onChange={(e) => patch({ objective: e.target.value })} />}
+        {(c) => <TextArea resizable={false} {...c} rows={3} value={profile.objective} onChange={(e) => patch({ objective: e.target.value })} />}
       </Field>
 
       <fieldset className="flex flex-col gap-2">
@@ -100,7 +100,7 @@ export function DomainForm({ domain, onDone, onCancel }: DomainFormProps) {
         <p className="-mt-1 text-[13px] text-muted">Write each as “Heading: what it covers”. A note leaves out a section it has nothing real to say for.</p>
         {sections.map((s, i) => (
           <div key={i} className="flex items-start gap-2">
-            <TextArea aria-label={`Section ${i + 1}`} rows={2} className="min-h-0" value={s} onChange={(e) => patch({ depth_sections: sections.map((x, j) => (j === i ? e.target.value : x)) })} />
+            <TextArea resizable={false} aria-label={`Section ${i + 1}`} rows={2} className="min-w-0 flex-1" value={s} onChange={(e) => patch({ depth_sections: sections.map((x, j) => (j === i ? e.target.value : x)) })} />
             <Button size="sm" variant="ghost" disabled={i === 0} aria-label={`Move section ${i + 1} up`} onClick={() => move(i, -1)}>Up</Button>
             <Button size="sm" variant="ghost" disabled={i === sections.length - 1} aria-label={`Move section ${i + 1} down`} onClick={() => move(i, 1)}>Down</Button>
             <Button size="sm" variant="ghost" aria-label={`Remove section ${i + 1}`} onClick={() => patch({ depth_sections: sections.filter((_, j) => j !== i) })}>Remove</Button>
@@ -113,14 +113,14 @@ export function DomainForm({ domain, onDone, onCancel }: DomainFormProps) {
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field label="In scope" hint="Including the prerequisites a reader needs.">
-          {(c) => <TextArea {...c} rows={4} value={profile.scope_include} onChange={(e) => patch({ scope_include: e.target.value })} />}
+          {(c) => <TextArea resizable={false} {...c} rows={4} value={profile.scope_include} onChange={(e) => patch({ scope_include: e.target.value })} />}
         </Field>
         <Field label="Mention only" hint="Gets one line at most, never its own note.">
-          {(c) => <TextArea {...c} rows={4} value={profile.scope_mention_only} onChange={(e) => patch({ scope_mention_only: e.target.value })} />}
+          {(c) => <TextArea resizable={false} {...c} rows={4} value={profile.scope_mention_only} onChange={(e) => patch({ scope_mention_only: e.target.value })} />}
         </Field>
       </div>
       <Field label="Style" hint="Tone and writing rules.">
-        {(c) => <TextArea {...c} rows={3} value={profile.style} onChange={(e) => patch({ style: e.target.value })} />}
+        {(c) => <TextArea resizable={false} {...c} rows={3} value={profile.style} onChange={(e) => patch({ style: e.target.value })} />}
       </Field>
 
       {save.isError || remove.isError ? (

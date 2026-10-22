@@ -23,3 +23,16 @@ export async function fetchAgentConfigs(): Promise<AgentConfig[]> {
 export function updateAgentConfig(agentRole: string, input: UpdateAgentConfigInput): Promise<AgentConfig> {
   return apiPut<AgentConfig>(`/agent-configs/${encodeURIComponent(agentRole)}`, input);
 }
+
+/** A model an agent role can be set to. */
+export interface ModelOption {
+  /** What is passed to `claude --model`. */
+  id: string;
+  label: string;
+  /** `pinned` is a fixed version; `latest` is an alias that follows the newest release. */
+  group: "pinned" | "latest";
+}
+
+export async function fetchModels(): Promise<ModelOption[]> {
+  return (await apiGet<{ models: ModelOption[] }>("/agent-configs/models")).models;
+}

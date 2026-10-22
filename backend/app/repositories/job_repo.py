@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 STATUSES = ("queued", "running", "awaiting_owner", "completed", "failed", "cancelled")
 TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 STEPS = (
-    "classify", "outline", "overlap", "outline_gate", "research", "write",
+    "classify", "outline", "place", "overlap", "outline_gate", "research", "write",
     "references", "related", "validate", "draft_gate", "commit",
 )
 

@@ -115,6 +115,7 @@ function NodeRow(props: NodeRowProps) {
               <TextInput
                 autoFocus
                 aria-label={`New subtopic under ${node.title}`}
+                className="min-w-0 flex-1"
                 placeholder="Subtopic title"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}

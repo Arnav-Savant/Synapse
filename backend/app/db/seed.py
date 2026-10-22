@@ -21,6 +21,7 @@ _DEFAULTS: dict[str, tuple[str, str, dict]] = {
         "medium",
         {"max_turns": 12, "max_searches": 8, "timeout_seconds": 600},
     ),
+    "placer": ("claude-sonnet-5-5", "low", {}),
     "linker": ("claude-sonnet-5-5", "low", {}),
     "writer": ("claude-opus-5-5", "high", {}),
     "synthesizer": ("claude-sonnet-5-5", "medium", {}),

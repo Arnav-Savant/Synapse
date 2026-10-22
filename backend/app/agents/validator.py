@@ -37,17 +37,23 @@ async def validate_note(
     node: OutlineNode,
     profile: DomainProfile,
     dossier: Dossier | None,
+    note_kind: str = "detailed",
 ) -> RunResult[NoteVerdict]:
     if dossier is not None:
         evidence = f"Evidence the note was written from:\n{dossier_block(dossier)}"
     else:
         evidence = f"Material the owner supplied for this note:\n<<<\n{node.content_slice or '(none)'}\n>>>"
     depth = "\n".join(f"- {s}" for s in profile.depth_sections) or "(the domain defines no fixed template)"
+    kind_text = {
+        "detailed": f"Depth sections a detailed note of this kind should have (any with no substance for the subject may be absent):\n{depth}",
+        "overview": "This is an overview or parent note. It frames and compares its subtopics and is not expected to have the detailed-note sections; do not report missing_depth_section.",
+        "hub": "This is a hub note: a short orientation to an area that groups several topics. It is deliberately brief and not expected to have detailed-note sections; do not report missing_depth_section.",
+    }[note_kind]
     prompt = (
         "You review a draft study note before the owner sees it. Report only real problems; a good note gets an empty "
         "`issues` list. Do not nitpick style.\n\n"
         f"Note: {node.title}\n\n{profile_block([('target domain', profile)])}\n\n"
-        f"Depth sections a note of this kind should have (any with no substance for the subject may be absent):\n{depth}\n\n"
+        f"{kind_text}\n\n"
         "Check for:\n"
         "- scope_creep: mention-only subjects (adjacent technologies) given their own sections or more than a line; "
         "content far outside the note's subject.\n"

@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.outline import Outline
+from app.schemas.placement import HubInfo, NoteBrief
 
 MAX_INPUT_CHARS = 200_000
 CLASSIFIER_CONFIDENCE_THRESHOLD = 0.7
@@ -49,8 +50,16 @@ class JobDetail(JobOut):
     steps: list[StepRunOut]
 
 
+class PlacementOptions(BaseModel):
+    """What one vault offers: hubs the topic can sit under, and top-level notes that can be attached beside it."""
+
+    hubs: list[HubInfo]
+    notes: list[NoteBrief]
+
+
 class OutlineView(BaseModel):
     outline: Outline
+    placement: dict[str, PlacementOptions]  # per domain slug
     resolved_domains: list[str]
     classifier_confidence: float | None
     low_confidence: bool  # below the threshold: the owner should confirm the domain
@@ -77,6 +86,13 @@ class LinkAdditionView(BaseModel):
     entry_title: str
 
 
+class AttachmentView(BaseModel):
+    note_title: str
+    hub_title: str
+    domain_slug: str
+
+
 class DraftsResponse(BaseModel):
     drafts: list[DraftView]
     link_additions: list[LinkAdditionView] = Field(default_factory=list)
+    attachments: list[AttachmentView] = Field(default_factory=list)

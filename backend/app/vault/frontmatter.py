@@ -2,10 +2,10 @@
 
 import yaml
 
-# Key order from the spec (§7.2). `topic_id` is written only when set (twins).
+# Key order of a note's frontmatter. `topic_id` is written only when set (cross-domain copies) and `hub` only on hubs.
 # Any other keys (for example ones the owner added in Obsidian) follow, in
 # their original order, so Synapse never drops them.
-_KEY_ORDER = ("synapse_id", "topic_id", "domain", "parents", "aliases", "summary", "job_id", "created")
+_KEY_ORDER = ("synapse_id", "topic_id", "domain", "hub", "parents", "aliases", "summary", "job_id", "created")
 _FENCE = "---"
 
 
