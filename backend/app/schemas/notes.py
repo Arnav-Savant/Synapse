@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -28,3 +30,48 @@ class DeletePlan(BaseModel):
     edits: list[FileEdit]
     reparent: list[ReparentChange]
     needs_extra_confirm: list[NoteRef]  # deleted notes the owner has edited in Obsidian
+
+
+class NoteOut(BaseModel):
+    synapse_id: str
+    title: str
+    path: str
+    summary: str
+    domain_slug: str
+    user_modified: bool
+    twin_domains: list[str]  # other vaults holding a note on the same subject
+
+
+class NotesResponse(BaseModel):
+    notes: list[NoteOut]
+
+
+class DeleteSelector(BaseModel):
+    """Exactly one of note_ids, topic_folder or job_id."""
+
+    domain: str
+    note_ids: list[str] | None = None
+    topic_folder: str | None = None
+    job_id: str | None = None
+    twin_scope: Literal["this", "all"] = "this"
+
+
+class DeleteRequest(DeleteSelector):
+    confirm_modified: bool = False
+
+
+class DeleteResponse(BaseModel):
+    deleted: int
+    links_stripped_in: int
+    children_reattached: int
+
+
+class ReconcileOut(BaseModel):
+    removed: int
+    added: int
+    modified: int
+    moved: int
+
+
+class ReconcileResponse(BaseModel):
+    domains: dict[str, ReconcileOut]

@@ -50,7 +50,8 @@ SIZE_AND_SCOPE_RULES = (
     "- Size follows the topic: from a single node up to about ten nodes besides the root. Deeper levels only where the topic "
     "truly has them (for example Isolation levels -> Anomalies -> Dirty reads). This is a set of notes, not a book.\n"
     "- Respect the scope rules: adjacent technologies and ecosystems are mention-only and never get their own node.\n"
-    "- Titles are unique, plain, and usable as file names (no / \\ : * ? \" < > | # ^ [ ]). Max 40 nodes.\n"
+    "- At most 4 levels deep (the root is level 1) and at most 40 nodes. Prefer a wide, shallow tree.\n"
+    "- Titles are unique, plain, and usable as file names (no / \\ : * ? \" < > | # ^ [ ]).\n"
     "- Give every node a one-line `summary`."
 )
 

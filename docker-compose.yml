@@ -1,14 +1,15 @@
 # docker-compose.yml
 #
-# Postgres only. The backend runs on the host directly (`poetry run python
-# main.py`), not in a container: it invokes the `claude` CLI as a subprocess
-# and relies on the host user's own OAuth login (`~/.claude/.credentials.json`,
-# see docs/ARCHITECTURE.md §5.1/FR2.2) — a container has neither the `claude`
-# CLI installed nor that credential file, so containerizing the backend would
-# break every agent invocation. (An earlier `backend` service + `backend/Dockerfile`
-# existed here from before that constraint was locked in; removed as dead,
-# non-functional weight — see git history if a containerized backend is ever
-# revisited with the CLI/credential mounting worked out properly.)
+# Postgres and Temporal. The backend and the Temporal worker run on the host
+# (`cd backend && poetry run python main.py`), not in a container: agents are
+# `claude -p` subprocesses that rely on the host user's own OAuth login
+# (`~/.claude/.credentials.json`), and a container has neither the `claude`
+# CLI nor that credential file. The worker lives inside the backend process,
+# so it runs on the host too and reaches Temporal on 127.0.0.1:7233.
+#
+# One Postgres instance serves both Synapse (database `synapse`) and Temporal
+# (databases `temporal` and `temporal_visibility`, created by auto-setup).
+# Image tags are pinned to the versions in github.com/temporalio/docker-compose.
 services:
   postgres:
     image: postgres:16-alpine
@@ -20,6 +21,35 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: synapse
+      POSTGRES_PWD: synapse
+      POSTGRES_SEEDS: postgres
+    ports:
+      - "127.0.0.1:7233:7233"
+
+  # Optional web UI for watching workflows: http://127.0.0.1:8233
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:8233:8080"
 
 volumes:
   pg-data:

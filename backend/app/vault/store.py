@@ -34,6 +34,8 @@ def write_note_atomic(path: Path, text: str) -> str:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        # mkstemp creates owner-only files; a note should keep its file's mode, or get the normal 0644 a new file would.
+        os.chmod(tmp_path, path.stat().st_mode & 0o777 if path.exists() else 0o644)
         os.replace(tmp_path, path)
         tmp_path = None
     except OSError as exc:

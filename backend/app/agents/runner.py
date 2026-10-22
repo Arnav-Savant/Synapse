@@ -22,9 +22,16 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+_MAX_ECHO_CHARS = 8000  # how much of a rejected reply is shown back to the agent
+
 
 class AgentOutputError(RuntimeError):
-    """The agent never produced output matching its schema, even after re-asks."""
+    """The agent never produced output matching its schema, even after re-asks.
+    `cost_usd` is what the failed attempts cost, so callers can still record it."""
+
+    def __init__(self, message: str, cost_usd: float = 0.0) -> None:
+        super().__init__(message)
+        self.cost_usd = cost_usd
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,13 @@ def _with_schema_instructions(prompt: str, model_cls: type[BaseModel]) -> str:
 
 
 def _short(error: Exception) -> str:
+    """One readable line: schema problems as 'field: what is wrong', without pydantic's input dump or docs link."""
+    if isinstance(error, ValidationError):
+        parts = [
+            (f"{'.'.join(str(p) for p in e['loc'])}: " if e["loc"] else "") + e["msg"].removeprefix("Value error, ")
+            for e in error.errors()
+        ]
+        return "; ".join(parts)[:600]
     return " ".join(str(error).split())[:600]
 
 
@@ -87,14 +101,17 @@ async def run_structured(
                 "agent %s (job %s): reply had the wrong shape (attempt %d/%d): %s",
                 role, job_id[:8], attempt, max_shape_retries + 1, _short(exc),
             )
+            previous = result.result_text.strip()
             attempt_prompt = (
                 f"{base_prompt}\n\nYour previous reply could not be used: {_short(exc)}\n"
-                "Reply again with only the corrected JSON object."
+                + (f"This is that reply:\n<<<\n{previous[:_MAX_ECHO_CHARS]}\n>>>\n" if previous else "")
+                + "Reply again with only the corrected JSON object."
             )
             continue
         return RunResult(value=value, cost_usd=total_cost, fetched_urls=tuple(fetched) if fetched is not None else None)
 
     logger.error("agent %s (job %s): gave up after %d attempts, output never matched its schema", role, job_id[:8], max_shape_retries + 1)
     raise AgentOutputError(
-        f"agent {role} did not return valid output after {max_shape_retries + 1} attempts: {_short(last_error)}"
+        f"agent {role} did not return valid output after {max_shape_retries + 1} attempts: {_short(last_error)}",
+        cost_usd=total_cost,
     )

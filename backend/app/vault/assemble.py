@@ -214,3 +214,49 @@ def drop_empty_sections(text: str) -> str:
                 kept.append("")  # keep one final newline
         text = "".join(kept)
     return text
+
+
+_WIKI_ENTRY = re.compile(r"^- \[\[(.+?)\]\](?:: (.*))?$")
+_REF_ENTRY = re.compile(r"^- (\[[^\]]*\]\([^)]*\)|\S+)(?:: (.*))?$")
+
+
+def replace_body(existing_text: str, new_body: str) -> str:
+    """Swaps a note's body for `new_body`, keeping its frontmatter, `Up:` line and the
+    Subtopics/Related/References blocks exactly as they are."""
+    _, body = split_frontmatter(existing_text)
+    head = existing_text[: len(existing_text) - len(body)]
+    lines = body.splitlines(keepends=True)
+    up_index = next((i for i, l in enumerate(lines[:10]) if l.lstrip().startswith("Up:")), None)
+    up_block = "".join(lines[: up_index + 1]).strip("\n") + "\n\n" if up_index is not None else ""
+    starts = [b[0] for name in SECTIONS if (b := _section_bounds(lines, name))]
+    tail = "".join(lines[min(starts) :]).strip("\n") + "\n" if starts else ""
+    return head + "\n" + up_block + new_body.strip() + "\n" + ("\n" + tail if tail else "")
+
+
+def section_lines(text: str, section: str) -> list[str]:
+    lines = text.splitlines()
+    bounds = _section_bounds(lines, section)
+    return [l for l in lines[bounds[0] + 1 : bounds[1]] if l.strip()] if bounds else []
+
+
+def carry_over_sections(prior_text: str, new_text: str) -> str:
+    """When a draft is regenerated, keeps the Related and References entries the earlier
+    version had (they are not the writer's output, so regenerating must not lose them)."""
+    for section, pattern in (("Related", _WIKI_ENTRY), ("References", _REF_ENTRY)):
+        have = set(section_lines(new_text, section))
+        for line in section_lines(prior_text, section):
+            match = pattern.match(line)
+            if match and line not in have:
+                new_text = insert_link_line(new_text, section, (match.group(1), match.group(2) or ""))
+    return new_text
+
+
+def strip_link_sections(text: str) -> str:
+    """The note without its Subtopics/Related/References blocks: the prose a reviewer should judge.
+    Those blocks are generated and checked by code, not written by the model."""
+    for section in SECTIONS:
+        lines = text.splitlines(keepends=True)
+        bounds = _section_bounds(lines, section)
+        if bounds is not None:
+            text = "".join(lines[: bounds[0]] + lines[bounds[1] :])
+    return text

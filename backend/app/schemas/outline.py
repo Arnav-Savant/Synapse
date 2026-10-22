@@ -2,9 +2,14 @@
 
 from typing import Literal
 
+import re
+
 from pydantic import BaseModel, Field
 
 from app.vault.titles import InvalidTitleError, sanitize_title, title_key
+
+
+_KEY_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,40}")
 
 
 class OverlapVerdict(BaseModel):
@@ -38,6 +43,9 @@ def validate_outline(outline: Outline, *, max_nodes: int = 40, max_depth: int = 
         errors.append(f"the outline has {len(nodes)} nodes; the limit is {max_nodes}")
 
     keys = [n.key for n in nodes]
+    bad_keys = [k for k in keys if not _KEY_PATTERN.fullmatch(k)]
+    if bad_keys:
+        errors.append(f"node keys may only use letters, digits, '_', '-' and '.' (max 40 characters); fix {bad_keys}")
     if len(set(keys)) != len(keys):
         errors.append("node keys must be unique")
     by_key = {n.key: n for n in nodes}

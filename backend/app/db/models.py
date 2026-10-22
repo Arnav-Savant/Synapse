@@ -162,6 +162,7 @@ class NoteDraft(Base):
     body_md: Mapped[str] = mapped_column(Text, default="")
     frontmatter: Mapped[dict] = mapped_column(JSONB, default=dict)
     kind: Mapped[str] = mapped_column(String(10), default="new")  # new | merge
+    path: Mapped[str | None] = mapped_column(Text, nullable=True)  # relative to the vault folder
     target_note_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     base_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     validator_flags: Mapped[list] = mapped_column(JSONB, default=list)

@@ -5,6 +5,7 @@ configures CORS and maps domain exceptions raised by the repository layer to
 HTTP responses centrally. No business logic should be added here.
 """
 
+import asyncio
 import contextlib
 import logging
 import subprocess
@@ -18,15 +19,27 @@ from fastapi.responses import JSONResponse
 from app.agents.runner import AgentOutputError
 from app.api.agent_config import router as agent_config_router
 from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
+from app.api.notes import router as notes_router
 from app.api.domains import router as domains_router
 from app.core.config import REPO_ROOT, ConfigError, get_server_config, validate_vaults_root
 from app.core.logging_config import configure_logging
 from app.core.postgres_connection import postgres_connection
 from app.db.seed import seed_default_agent_configs, seed_default_domains
 from app.engines.claude_code_engine import ClaudeCodeEngineError
+from app.engines.factory import build_engine
 from app.repositories.agent_config_repo import AgentConfigNotFoundError
 from app.repositories.domain_repo import DomainExistsError, DomainNotFoundError
+from app.repositories.job_repo import JobNotFoundError
+from app.repositories.note_draft_repo import NoteDraftNotFoundError
+from app.repositories.note_index_repo import NoteNotFoundError
+from app.services.job_service import InputTooLargeError, InvalidJobInputError, JobStartError, JobStateError, reconcile_job_rows
+from app.services.note_delete_service import DeleteSelectionError
+from app.services.note_service import ConfirmationRequiredError
+from app.vault.paths import VaultPathError
 from app.services.reconcile_service import reconcile_all
+from app.workflows.client import TemporalUnavailableError, ensure_admission_started, get_client
+from app.workflows.worker import run_worker
 from app.services.agent_config_service import AgentConfigValidationError
 from app.services.domain_service import DomainInUseError, InvalidDomainError, VaultFolderError
 
@@ -79,10 +92,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # A reconcile problem must never keep the app from starting; the Notes page can re-run it.
         logger.exception("startup reconcile failed; continuing without it")
 
+    try:
+        client = await get_client(settings)
+    except TemporalUnavailableError as exc:
+        logger.critical("startup aborted: %s", exc)
+        raise
+    app.state.temporal_client = client
+    await ensure_admission_started(client)
+    try:
+        async for session in postgres_connection.get_session():
+            lost = await reconcile_job_rows(session, client)
+        if lost:
+            logger.warning("%d job(s) had lost their workflow and were marked failed", lost)
+    except Exception:
+        logger.exception("startup check of running jobs failed; continuing without it")
+    worker_task = run_worker(
+        client, session_factory=contextlib.asynccontextmanager(postgres_connection.get_session), engine=build_engine()
+    )
+
     logger.info("backend ready")
     yield
 
     logger.info("backend shutting down")
+    worker_task.cancel()
+    await asyncio.gather(worker_task, return_exceptions=True)
 
 
 app = FastAPI(title="Synapse Backend", lifespan=lifespan)
@@ -125,6 +158,16 @@ app.add_exception_handler(DomainNotFoundError, _json_handler(404, "domain not fo
 app.add_exception_handler(DomainExistsError, _json_handler(409, "domain already exists"))
 app.add_exception_handler(DomainInUseError, _json_handler(409, "domain in use"))
 app.add_exception_handler(InvalidDomainError, _json_handler(400, "invalid domain"))
+app.add_exception_handler(JobNotFoundError, _json_handler(404, "job not found"))
+app.add_exception_handler(NoteNotFoundError, _json_handler(404, "note not found"))
+app.add_exception_handler(NoteDraftNotFoundError, _json_handler(404, "draft not found"))
+app.add_exception_handler(InvalidJobInputError, _json_handler(400, "invalid job input"))
+app.add_exception_handler(DeleteSelectionError, _json_handler(400, "invalid delete selection"))
+app.add_exception_handler(VaultPathError, _json_handler(400, "path outside the vault"))
+app.add_exception_handler(InputTooLargeError, _json_handler(413, "input too large"))
+app.add_exception_handler(JobStateError, _json_handler(409, "job in the wrong state"))
+app.add_exception_handler(ConfirmationRequiredError, _json_handler(409, "confirmation required"))
+app.add_exception_handler(JobStartError, _json_handler(503, "job could not start", logger.error))
 app.add_exception_handler(AgentOutputError, _json_handler(502, "agent output unusable", logger.error))
 app.add_exception_handler(VaultFolderError, _json_handler(500, "vault folder error", logger.error))
 
@@ -139,3 +182,5 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
 app.include_router(health_router, prefix="/api")
 app.include_router(agent_config_router, prefix="/api")
 app.include_router(domains_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
+app.include_router(notes_router, prefix="/api")
