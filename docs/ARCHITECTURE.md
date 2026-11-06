@@ -75,7 +75,7 @@ Workflow activities are thin: they take ids, load state, call a service, and rec
 
 1. Check that `VAULTS_ROOT` is an absolute, existing, writable directory (otherwise exit).
 2. Apply database migrations (`alembic upgrade head`).
-3. Seed the eleven agent role rows that do not exist yet.
+3. Seed the twelve agent role rows that do not exist yet.
 4. If no domain exists, create the three starter domains and their vault folders.
 5. Reconcile every vault with the note index (§10).
 6. Connect to Temporal, retrying for about fifteen seconds (otherwise exit with a hint).
@@ -95,9 +95,9 @@ All tables live in one Postgres instance, which Temporal shares for its own data
 | `agent_configs` | per role: model, effort, `params` (JSON budgets) |
 | `jobs` | input kind and text, domain choice, resolved domains, status, current step, awaiting-owner flag, error, total cost, workflow id, profile snapshot, classifier confidence |
 | `step_runs` | an audit row per step: step, agent role, attempt, status, cost, error. Prompts and outputs are not kept. |
-| `outline_drafts` | one row per job: the outline tree with its hub placement per domain (JSON) and last feedback. Overwritten on every re-plan. |
+| `outline_drafts` | one row per job: the outline tree with its parent placement per domain (JSON) and last feedback. Overwritten on every re-plan. |
 | `note_drafts` | one row per job, domain and node: assembled file text, title, parents, frontmatter, kind (`new` or `merge`), target path, merge target and base hash, validator flags, dossier, stage (`researched`, `written`, `validated`, `stale`) |
-| `notes` | the index: id, domain, title, path (relative to the vault), aliases, summary, content hash, topic id, creating job, `user_modified`, `is_hub`, and a generated full-text vector |
+| `notes` | the index: id, domain, title, path (relative to the vault), aliases, summary, content hash, topic id, creating job, `user_modified`, and a generated full-text vector |
 | `note_links` | the index of links between notes: source, destination (if resolved), destination title, kind (`parent`, `related`, `body`) |
 
 Job statuses are `queued`, `running`, `awaiting_owner`, `completed`, `failed`,
@@ -125,13 +125,13 @@ queued ─▶ classify ─▶ outline ─▶ place ─▶ overlap ─▶ OUTLINE
 |---|---|---|
 | classify | Choose the domain(s) when the owner picked Auto-detect; skipped when a domain was chosen or only one domain exists | classifier |
 | outline | Propose the tree | planner (topic) or structurer (pasted content) |
-| place | Per domain, decide the hub path above the topic (none, one or two levels) and which existing top-level notes to attach beside it | placer |
+| place | Per domain, decide the parent notes above the topic (none, one or two levels) and which existing top-level notes to attach beside it | placer |
 | overlap | Per node and domain, find candidate existing notes and judge same, partial or distinct | linker |
 | outline_gate | Wait for the owner | none |
 | research | Per leaf, in parallel: facts and sources | researcher |
 | write | Leaves in parallel, then parents by height, then the top note | writer, synthesizer |
-| references | Per leaf: ranked, verified links | reference finder |
-| related | Per draft: cross-links to existing and sibling notes | linker |
+| references | Per leaf: ranked, verified links; skipped when the job has the reference search switched off | reference finder |
+| related | Per draft: justified cross-links to notes outside its own ancestors and descendants | linker |
 | validate | Rule checks, then the reviewer agent; failing notes are rewritten, at most twice | validator |
 | draft_gate | Wait for the owner | none |
 | commit | Write the approved drafts to the vault and update the index | none |
@@ -198,12 +198,13 @@ in Settings. The defaults:
 | `structurer` | Split pasted content into the outline, one slice per node | none | Sonnet, medium |
 | `researcher` | Research one leaf into a dossier | web | Sonnet, medium |
 | `linker` | Overlap verdicts; related links | none | Sonnet, low |
-| `writer` | Write leaf notes, domain versions and merges | none | Opus, high |
+| `writer` | Write leaf notes, domain versions and merges | none | Sonnet, high |
 | `synthesizer` | Write parent and top notes; the shared core of cross-domain notes | none | Sonnet, medium |
 | `reference_finder` | Rank and annotate references | web | Haiku, low |
-| `validator` | Judge scope, depth and accuracy | none | Sonnet, high |
+| `validator` | Judge scope, depth and accuracy | none | Sonnet, medium |
 | `profile_builder` | Draft a domain profile | none | Sonnet, medium |
-| `placer` | Choose the hub path above a topic and which existing notes join it | none | Sonnet, low |
+| `link_pruner` | Of one note's Related entries, keep only the prerequisites and contrasts | none | Haiku, low |
+| `placer` | Choose the parent notes above a topic and which existing notes join it | none | Sonnet, low |
 
 "Web" means `WebSearch` and `WebFetch`, and nothing else.
 
@@ -322,8 +323,8 @@ Overlap is judged on meaning, in two stages.
    alias first, then full-text rank over title, aliases and summary, then trigram
    similarity of the titles. At most eight candidates.
 2. **Judgement** (linker agent): per node and domain, `same` (merge into the existing
-   note), `partial` (write a new note that links to the existing one, and give the existing
-   note a back-link), or `distinct`. With no candidates the answer is `distinct` and the
+   note), `partial` (write a new note, with the existing one offered to it as a possible cross-link; the existing
+   note is not edited), or `distinct`. With no candidates the answer is `distinct` and the
    agent is not called.
 
 Verdicts are per node and per domain, so one node can merge in one vault and be new in
@@ -336,40 +337,78 @@ The writer returns an updated body; code replaces only the body, leaves the fron
 `Up:` line and the link lists in place, and adds new parents, subtopics, aliases, related
 links and references without removing anything.
 
-### 8.3 Hubs and placement
+### 8.3 Parent notes and placement
 
-A **hub** is a short overview note that groups related topics, such as *Database internals* above
-*Buffer pool management* and *Write-ahead logging*. It is an ordinary note with `hub: true` in its
-frontmatter (indexed as `notes.is_hub`) and lives in the vault's `Hubs` folder. A topic's notes live in
-a folder of their own, named after its top note.
+A topic can sit under a **parent note**, a short overview that groups related topics, such as *Database
+internals* above *Buffer pool management* and *Write-ahead logging*. A parent is an ordinary note: it has
+`parents` and children like any other and has no marker, flag or folder of its own. Any existing note
+that has children can serve as one. A topic's notes live in a folder named after its top note; a new
+parent starts a folder named after itself and the notes beneath it share that folder, while a topic
+placed under an existing parent starts its own folder, because the existing parent's folder belongs to
+its other topics.
 
 After the outline is drafted, the **placer** receives the domain, the topic and its subtopics, the
-hubs that already exist (as a tree with their summaries) and the existing top-level notes that are not
-under any hub. It returns a path of hubs above the topic, outermost first, and the existing notes to
-attach beside it. The rules are enforced in code, and a violation becomes a specific re-ask:
+existing notes that have children (as a tree with their summaries) and the existing top-level notes. It
+returns a chain of parents above the topic, outermost first, and the existing notes to attach beside it.
+The rules are enforced in code, and a violation becomes a specific re-ask:
 
-- at most two levels, and zero or one are fine; an existing hub must be copied exactly from the list,
-  and an existing hub can sit only under another existing hub that really is its parent;
-- a new hub needs a title and a one-line summary and may not duplicate a hub, or a note of any kind, that
-  is already in the vault;
-- attached notes must come from the list and need a hub to go under (at most eight).
+- at most two levels, and zero or one are fine; an existing parent must be copied exactly from the list,
+  and an existing parent can sit only under another existing parent that really is its parent;
+- a new parent needs a title and a one-line summary and may not duplicate a note that is already in the
+  vault;
+- attached notes must come from the list, must not be one of the parents, and need a parent to go under
+  (at most eight).
 
 The result is stored on the outline per domain (`ancestors`, `adopt`), shown at the outline gate, and
 editable there. Edits go through the same checks, including a re-check when the owner approves. A re-plan
 keeps the owner's placement.
 
-When drafts are built, the path is expanded into extra nodes above the topic's top note. A **new** hub is
-written like any overview note, with no research. An **existing** hub, and each attached note, is a
-`reuse` node: it supplies its title and is never rewritten. Committing then does only single-line work on
-existing files:
+When drafts are built, the chain is expanded into extra nodes above the topic's top note. A **new** parent
+is written as a short orientation with no research, because it has no source passages (the node is marked
+`placed`). An **existing** parent, and each attached note, is a `reuse` node: it supplies its title and is
+never rewritten. Committing then does only single-line work on existing files:
 
-- the topic's top note is added to an existing hub's `## Subtopics` by one inserted line (as is each
+- the topic's top note is added to an existing parent's `## Subtopics` by one inserted line (as is each
   attached note);
-- each attached note gets the hub added to its `parents` and its `Up:` line, and nothing else changes in it.
+- each attached note gets the parent added to its `parents` and its `Up:` line, and nothing else changes in it.
 
-Both are listed at the draft gate before anything is approved. A new hub's own `## Subtopics` is generated
-like any parent note's, and includes the attached notes. Later topics see the hub as an existing one and
-attach to it the same way.
+Both are listed at the draft gate before anything is approved. A new parent's own `## Subtopics` is
+generated like any parent note's, and includes the attached notes. Later topics see it as an existing note
+and attach to it the same way. A note that already has children is not offered as a merge target in the
+overlap check, since it groups other notes.
+
+### 8.4 Related links
+
+The hierarchy carries the structure, so `## Related` is kept sparse and holds cross-links only.
+
+**What the linker may offer.** The hierarchy already links a note to its ancestors and descendants, so
+they are never offered. The code builds that family at any depth from the `parents` of the vault's indexed
+notes, the job's own drafts and the notes being attached, and removes it from the candidates. Siblings,
+cousins and notes in other branches stay eligible.
+
+**What the linker may choose.** A link needs one of two reasons, recorded as `kind`: a *prerequisite* (the
+reader must understand the other note first) or a *contrast* (its direct alternative or counterpart).
+Sharing a topic or a parent is not a reason, because notes under one parent are one click apart through
+it. The prompt says to leave a link out when in doubt and that none is the expected answer for most notes.
+There is no numeric cap: a parent may have a hundred children and a note several parents. Each entry is
+written as `Prerequisite: ...` or `Contrast: ...`. Code drops any title that was not offered and any entry
+whose reason is empty or only says the notes are "related".
+
+**After the linker.** Two rules run in code (`related_links.py`):
+
+- *Link a cluster once.* When two or more chosen notes share a parent outside this note's own family, the
+  note links that parent once instead of each of them.
+- *One side per pair.* When two drafts in a job list each other, the pair stays on one note: the one whose
+  entry is a prerequisite, else the alphabetically first. A note a new one partly overlaps is not edited
+  at commit; Obsidian's backlinks show the other direction.
+
+**Notes written earlier.** The link-tidy service reads the files on disk. Its rule-based plan
+(`GET /notes/tidy-preview`) lists the entries that point at an ancestor or descendant and the second copy
+of each mutual pair. An optional review (`POST /notes/tidy-review`) asks the `link_pruner` agent, one call
+per note, which of the remaining entries are a prerequisite or a contrast; the rest are proposed for
+removal. The owner sees the proposal before anything changes. `POST /notes/tidy` then removes the
+rule-based entries and the reviewed ones the owner confirmed, only the `## Related` lines, under the vault
+lock. It leaves `user_modified` alone and removes the heading when the section ends up empty.
 
 ## 9. Commit
 
@@ -436,11 +475,12 @@ All routes are under `/api`.
 | `GET /agent-configs`, `PUT /agent-configs/{role}` | Per-role model, effort and budgets; a model outside the allowed list is refused |
 | `GET /agent-configs/models` | The models a role can be set to |
 | `POST /jobs`, `GET /jobs`, `GET /jobs/{id}` | Submit a job, list jobs, one job with its steps |
-| `GET /jobs/{id}/outline`, `POST /jobs/{id}/outline-decision` | The outline gate; the view includes, per domain, the hubs and top-level notes the topic can be placed with |
+| `GET /jobs/{id}/outline`, `POST /jobs/{id}/outline-decision` | The outline gate; the view includes, per domain, the parent notes and top-level notes the topic can be placed with |
 | `GET /jobs/{id}/drafts`, `POST /jobs/{id}/draft-decision` | The draft gate |
 | `POST /jobs/{id}/cancel` | Cancel a job |
 | `GET /notes?domain=&q=` | List and search notes |
 | `POST /notes/delete-preview`, `POST /notes/delete` | Preview and perform a delete |
+| `GET /notes/tidy-preview?domain=`, `POST /notes/tidy-review?domain=`, `POST /notes/tidy` | Preview, optionally review with the link pruner, and remove Related links that are redundant |
 | `POST /notes/reconcile` | Rescan the vaults |
 
 Submitting a job records it and asks Temporal to start its workflow, then returns; no work
@@ -509,8 +549,8 @@ Note bodies, prompts, fetched web content and secrets are never logged; sizes an
 | Quality rewrite rounds | 2 |
 | Temporal attempts per activity | 3 |
 | Overlap candidates per node | 8 |
-| Hub levels above a topic | 0 to 2 |
-| Existing notes attached under a hub at once | 8 |
+| Parent levels above a topic | 0 to 2 |
+| Existing notes attached under a parent at once | 8 |
 | References per note | at most 8 |
 | Note title length | 120 characters |
 

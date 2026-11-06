@@ -9,11 +9,11 @@ export interface OverlapVerdict {
   reason: string;
 }
 
-/** One hub level above the topic's top note. A hub is a short overview note that groups related topics. */
+/** One parent note above the topic's top note: a short overview note that groups related topics. */
 export interface Ancestor {
   title: string;
   summary: string;
-  /** Set when this reuses a hub that already exists in the vault. */
+  /** Set when this reuses a parent note that already exists in the vault. */
   existing_note_id: string | null;
 }
 
@@ -27,24 +27,24 @@ export interface OutlineNode {
   content_slice: string | null;
   /** Keyed by domain slug. */
   verdicts: Record<string, OverlapVerdict>;
-  hub: boolean;
+  placed: boolean;
   reuse: boolean;
 }
 
 export interface Outline {
   topic_title: string;
   nodes: OutlineNode[];
-  /** Per domain slug: hub levels above the topic, outermost first (up to two). */
+  /** Per domain slug: parent notes above the topic, outermost first (up to two). */
   ancestors: Record<string, Ancestor[]>;
-  /** Per domain slug: existing top-level notes to attach under the innermost hub. */
+  /** Per domain slug: existing top-level notes to attach under the innermost parent. */
   adopt: Record<string, string[]>;
 }
 
-export interface HubInfo {
+export interface ParentInfo {
   id: string;
   title: string;
   summary: string;
-  /** The hub it sits under, if any. */
+  /** The note it sits under, if any. */
   parent_title: string | null;
 }
 
@@ -55,7 +55,7 @@ export interface NoteBrief {
 }
 
 export interface PlacementOptions {
-  hubs: HubInfo[];
+  parents: ParentInfo[];
   notes: NoteBrief[];
 }
 
@@ -134,14 +134,14 @@ export interface LinkAddition {
 
 export interface Attachment {
   note_title: string;
-  hub_title: string;
+  parent_title: string;
   domain_slug: string;
 }
 
 export interface DraftsResponse {
   drafts: Draft[];
   link_additions: LinkAddition[];
-  /** Existing notes that approving attaches under a hub by changing only their parent link. */
+  /** Existing notes that approving attaches under a parent by changing only their parent link. */
   attachments: Attachment[];
 }
 
@@ -173,6 +173,8 @@ export interface CreateJobInput {
   text: string;
   /** A domain slug, or "auto". */
   domain_choice: string;
+  /** False skips the web reference search for every note in the job. */
+  find_references: boolean;
 }
 
 export const createJob = (input: CreateJobInput) => apiPost<Job>("/jobs", input);

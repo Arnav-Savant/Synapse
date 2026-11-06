@@ -15,7 +15,7 @@ authoring engine.
 
 **In scope**
 - Turning pasted content or a topic name into linked notes in the right vault(s).
-- Building a dense, deduplicated graph: overlapping material is merged or linked.
+- Building a navigable, deduplicated graph: overlapping material is merged or linked, and the hierarchy carries the structure.
 - Keeping the owner in control through an outline approval and a draft approval.
 - Running several jobs asynchronously, surviving restarts, and showing progress.
 - Per-agent model and effort configuration, and owner-defined domains.
@@ -47,7 +47,8 @@ authoring engine.
 
 ### FR2: Ingest
 - FR2.1 The owner can submit pasted content or a topic name, with a domain chosen
-  or auto-detected.
+  or auto-detected. A job can switch off the web reference search, which then
+  skips the references step for every note in that job.
 - FR2.2 Empty or whitespace-only input is rejected. Input over 200,000 characters
   is rejected with an explanatory message and is never silently truncated.
 - FR2.3 Auto-detect may return more than one domain, with a confidence. A
@@ -70,18 +71,20 @@ authoring engine.
   times as they like.
 - FR3.5 An outline edit that makes the tree invalid is refused with the reason
   and the job stays at this step.
-- FR3.6 Each topic is placed, per domain, under zero, one or two hub levels. A hub is a
-  short overview note that groups related topics. A placement agent proposes the fewest
-  levels that make sense and reuses an existing hub whenever one fits; it proposes a new hub
-  only when none fits and the area would hold several topics. More than two levels are never
-  allowed.
-- FR3.7 The proposed hub path is shown at the outline approval, marked as existing or new, and
-  the owner can pick a different hub, rename or describe a new one, add or remove a level, or
-  leave the topic with no hub.
+- FR3.6 Each topic is placed, per domain, under zero, one or two parent notes. A parent is an
+  ordinary short overview note that groups related topics; any existing note that has children can
+  serve. A placement agent proposes the fewest levels that make sense and reuses an existing note
+  whenever one fits; it proposes a new parent only when none fits and the area would hold several
+  topics. More than two levels are never allowed.
+- FR3.7 The proposed parent chain is shown at the outline approval, marked as existing or new, and
+  the owner can pick a different parent, rename or describe a new one, add or remove a level, or
+  leave the topic with no parent.
 - FR3.8 Existing top-level notes that belong beside the topic can be attached under the innermost
-  hub. Attaching changes only a note's parent link, never its text.
-- FR3.9 A new hub is written like an overview note (short, no research). An existing hub is not
-  rewritten: the new topic is added to its Subtopics list by one inserted line.
+  parent. Attaching changes only a note's parent link, never its text.
+- FR3.9 A new parent has no source passages, so it is written as a short orientation (no research).
+  An existing parent is not rewritten: the new topic is added to its Subtopics list by one inserted
+  line.
+- FR3.10 A note that already has children is not offered as a merge target for a new topic.
 
 ### FR4: Research and writing
 - FR4.1 For a topic, each leaf is researched on the web into a dossier of facts
@@ -123,8 +126,8 @@ authoring engine.
   file already exists at its path. A refused draft stays in review with the reason.
 - FR6.6 Committing is repeatable: running it again after an interruption completes
   the work without duplicating or overwriting anything.
-- FR6.7 Approving a note that partly overlaps an existing one adds a back-link
-  line to that note, changing nothing else in it.
+- FR6.7 Approving a note that partly overlaps an existing one does not edit that note; the
+  link lives on the new note.
 
 ### FR7: Note format
 - FR7.1 One Markdown file per note, named after its title, in one folder per
@@ -134,8 +137,17 @@ authoring engine.
   a body, and `Subtopics`, `Related` and `References` lists. Links are Obsidian
   wikilinks.
 - FR7.3 No note is ever linked across vaults.
-- FR7.5 A hub carries `hub: true` in its frontmatter and lives in the vault's `Hubs` folder. An owner can
-  make any note a hub by adding `hub: true`.
+- FR7.5 The hierarchy is the `parents` of each note. A note lists only its direct children under
+  `Subtopics`, and a parent has no special marker or folder.
+- FR7.6 `Related` holds cross-links only and is kept sparse. It never lists a note's ancestors or
+  descendants at any depth, has no fixed number of entries, and every entry is a prerequisite or a
+  contrast and carries a reason. An entry with no reason is dropped. When several chosen notes share
+  a parent outside the note's own family, that parent is linked once. A pair of notes that list each
+  other keeps the link on one of them.
+- FR7.7 The owner can preview and then remove, from notes already in a vault, the `Related` entries
+  that repeat the hierarchy and the second copy of each mutual pair, and can have Claude review the
+  rest and propose removing those that are neither a prerequisite nor a contrast. Nothing changes
+  before the owner confirms, and only `Related` lines change.
 - FR7.4 Every file path is verified to be inside its domain's vault before it is
   written.
 
@@ -164,7 +176,7 @@ authoring engine.
   is a merge against the file on disk.
 
 ### FR10: Settings
-- FR10.1 Each of the eleven agent roles has its own model and effort, editable in the
+- FR10.1 Each of the twelve agent roles has its own model and effort, editable in the
   app. The model is chosen from the list Claude Code accepts (pinned versions and
   "latest" aliases); any other value is refused. The researcher and planner also expose their web-search budgets.
 - FR10.2 Domain management as in FR1.

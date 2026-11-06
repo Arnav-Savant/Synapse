@@ -8,8 +8,6 @@ export interface Note {
   summary: string;
   domain_slug: string;
   user_modified: boolean;
-  /** A note that groups topics. */
-  is_hub: boolean;
   /** The job that created it, if any. */
   job_id: string | null;
   /** Other vaults that hold a note on the same subject. */
@@ -77,3 +75,36 @@ export const deleteNotes = (selector: DeleteSelector, confirmModified: boolean) 
 export async function reconcile(): Promise<Record<string, ReconcileReport>> {
   return (await apiPost<{ domains: Record<string, ReconcileReport> }>("/notes/reconcile", {})).domains;
 }
+
+export interface TidyEdit {
+  note: NoteRef;
+  /** Related entries the rules remove: they repeat the tree, or the pair stays on the other note. */
+  remove: string[];
+  /** Entries the link reviewer judged not essential; removed only when confirmed. */
+  review: string[];
+}
+
+export interface TidyPlan {
+  domain_slug: string;
+  edits: TidyEdit[];
+  links: number;
+  /** True when the Claude review ran. */
+  reviewed: boolean;
+  cost_usd: number;
+}
+
+export interface TidyResult {
+  notes_changed: number;
+  links_removed: number;
+}
+
+export const previewTidy = (domain: string) => apiGet<TidyPlan>(`/notes/tidy-preview?${new URLSearchParams({ domain })}`);
+
+export const reviewTidy = (domain: string) => apiPost<TidyPlan>(`/notes/tidy-review?${new URLSearchParams({ domain })}`, {});
+
+/** Applies the rule-based removals, plus the reviewed entries when the plan came from the review. */
+export const applyTidy = (plan: TidyPlan) =>
+  apiPost<TidyResult>("/notes/tidy", {
+    domain_slug: plan.domain_slug,
+    extra: plan.edits.filter((e) => e.review.length > 0).map((e) => ({ note_id: e.note.synapse_id, titles: e.review })),
+  });

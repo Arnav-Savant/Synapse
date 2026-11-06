@@ -29,13 +29,14 @@ class JobNotFoundError(LookupError):
 
 
 async def create_job(
-    session: AsyncSession, *, input_kind: str, input_text: str, domain_choice: str, profile_snapshot: dict
+    session: AsyncSession, *, input_kind: str, input_text: str, domain_choice: str, profile_snapshot: dict,
+    find_references: bool = True,
 ) -> Job:
     """The workflow id is the job id, so the two can always be matched."""
     job_id = str(uuid.uuid4())
     job = Job(
         id=job_id, workflow_id=job_id, input_kind=input_kind, input_text=input_text,
-        domain_choice=domain_choice, profile_snapshot=profile_snapshot, status="queued",
+        domain_choice=domain_choice, profile_snapshot=profile_snapshot, status="queued", find_references=find_references,
     )
     session.add(job)
     await session.commit()

@@ -37,9 +37,10 @@ export function IngestPage({ onSubmitted }: { onSubmitted: () => void }) {
   const [kind, setKind] = useState<InputKind>("topic");
   const [text, setText] = useState("");
   const [domain, setDomain] = useState("auto");
+  const [findReferences, setFindReferences] = useState(true);
 
   const submit = useMutation({
-    mutationFn: () => createJob({ input_kind: kind, text, domain_choice: domain }),
+    mutationFn: () => createJob({ input_kind: kind, text, domain_choice: domain, find_references: findReferences }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: JOBS_QUERY_KEY });
       setText("");
@@ -109,6 +110,14 @@ export function IngestPage({ onSubmitted }: { onSubmitted: () => void }) {
                 </SelectInput>
               )}
             </Field>
+
+            <label className="flex max-w-prose items-start gap-2.5 text-sm">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--accent)]" checked={findReferences} onChange={(e) => setFindReferences(e.target.checked)} />
+              <span>
+                <span className="font-medium">Find web references</span>
+                <span className="block text-muted">Adds a References section with links to pages the agent opened. Turn it off to save a web search per note.</span>
+              </span>
+            </label>
 
             <div>
               <Button type="submit" variant="primary" loading={submit.isPending} disabled={empty || tooLong}>

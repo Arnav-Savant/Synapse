@@ -50,7 +50,9 @@ def profiles_for_job(job: Job, slugs: list[str]) -> list[tuple[str, DomainProfil
     return [(snapshot[s]["name"], DomainProfile.model_validate(snapshot[s]["profile"])) for s in slugs if s in snapshot]
 
 
-async def start_job(session: AsyncSession, client: Client, *, input_kind: str, text: str, domain_choice: str) -> Job:
+async def start_job(
+    session: AsyncSession, client: Client, *, input_kind: str, text: str, domain_choice: str, find_references: bool = True
+) -> Job:
     text = text.strip()
     if not text:
         raise InvalidJobInputError("the input is empty")
@@ -63,7 +65,8 @@ async def start_job(session: AsyncSession, client: Client, *, input_kind: str, t
         raise domain_repo.DomainNotFoundError(f"no domain with slug {domain_choice!r}")
 
     job = await job_repo.create_job(
-        session, input_kind=input_kind, input_text=text, domain_choice=domain_choice, profile_snapshot=snapshot_profiles(domains)
+        session, input_kind=input_kind, input_text=text, domain_choice=domain_choice, profile_snapshot=snapshot_profiles(domains),
+        find_references=find_references,
     )
     try:
         await ensure_admission_started(client)

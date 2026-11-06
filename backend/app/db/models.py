@@ -79,6 +79,7 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     current_step: Mapped[str | None] = mapped_column(String(30), nullable=True)
     awaiting_owner: Mapped[bool] = mapped_column(Boolean, default=False)
+    find_references: Mapped[bool] = mapped_column(Boolean, default=True)  # false: the job skips the web reference search
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), default=0)
     workflow_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -127,7 +128,6 @@ class Note(Base):
     topic_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     user_modified: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_hub: Mapped[bool] = mapped_column(Boolean, default=False)  # a note that groups topics; `hub: true` in its frontmatter
     tsv: Mapped[str] = mapped_column(TSVECTOR, Computed(NOTE_TSV_EXPRESSION, persisted=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

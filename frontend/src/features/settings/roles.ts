@@ -4,7 +4,7 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 export const ROLE_INFO: Record<string, { name: string; does: string }> = {
   classifier: { name: "Domain classifier", does: "Picks which domain your input belongs to." },
   planner: { name: "Outline planner", does: "Proposes the outline for a topic after a light web scan." },
-  placer: { name: "Topic placer", does: "Decides which hub a topic sits under, and which existing notes belong beside it." },
+  placer: { name: "Topic placer", does: "Decides which parent note a topic sits under, and which existing notes belong beside it." },
   structurer: { name: "Outline splitter", does: "Splits pasted material into an outline." },
   researcher: { name: "Researcher", does: "Researches each subtopic on the web." },
   linker: { name: "Overlap and links", does: "Spots notes that already cover something and picks related links." },
@@ -12,6 +12,7 @@ export const ROLE_INFO: Record<string, { name: string; does: string }> = {
   synthesizer: { name: "Overview writer", does: "Writes overview and parent notes that compare their subtopics." },
   reference_finder: { name: "Reference finder", does: "Finds and ranks credible links to cite." },
   validator: { name: "Draft checker", does: "Checks drafts for scope creep, missing depth and unsupported claims." },
+  link_pruner: { name: "Link reviewer", does: "When you press “Review links” on the Notes page, keeps only the Related links a reader needs." },
   profile_builder: { name: "Profile drafter", does: "Fills in a domain profile when you press “Draft with Claude”." },
 };
 

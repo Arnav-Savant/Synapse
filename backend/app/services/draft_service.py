@@ -30,10 +30,13 @@ from app.schemas.outline import Outline, OutlineNode, OverlapVerdict
 from app.schemas.validation import Issue, NoteVerdict, RoundSummary
 from app.services.draft_rules import check_draft_rules
 from app.services.note_link_index import parent_titles_from_text
+from app.services.related_links import collapse_to_parents, pair_losers
 from app.vault.assemble import (
-    NoteParts, assemble_note, carry_over_sections, insert_link_line, replace_body, set_parents, strip_link_sections,
+    NoteParts, assemble_note, carry_over_sections, insert_link_line, related_entries, remove_related_entries, replace_body,
+    set_parents, strip_link_sections,
 )
 from app.vault.frontmatter import split_frontmatter, with_meta
+from app.vault.hierarchy import family
 from app.vault.paths import resolve_in_vault
 from app.vault.store import file_hash
 from app.vault.titles import sanitize_title, title_key
@@ -41,7 +44,6 @@ from app.workflows.models import PlanInfo, PlanNode, round_key
 
 logger = logging.getLogger(__name__)
 
-HUB_FOLDER = "Hubs"  # every hub of a vault lives in this one folder
 _TOPIC_NAMESPACE = uuid.UUID("6f0d1a52-0a8e-4c57-9d5e-2b6e1f6f3a10")
 _SOURCE_TITLE_UNSAFE = str.maketrans({"[": "(", "]": ")"})
 
@@ -74,18 +76,18 @@ async def load_context(session: AsyncSession, job_id: str) -> DraftContext:
 
 
 async def _add_placement_nodes(session: AsyncSession, ctx: DraftContext) -> None:
-    """Turns the chosen hub path into nodes above the topic's top note, per domain. A new hub is a node that
-    gets written; an existing hub, and any existing note attached beside the topic, is a `reuse` node that only
+    """Turns the chosen parent chain into nodes above the topic's top note, per domain. A new parent is a node that
+    gets written; an existing parent, and any existing note attached beside the topic, is a `reuse` node that only
     supplies its title and is never rewritten. Changes the in-memory outline only."""
     root = next((n for n in ctx.outline.nodes if not n.parent_keys), None)
     for slug in ctx.job.resolved_domains:
         previous: str | None = None
         for i, ancestor in enumerate(ctx.outline.ancestors.get(slug, [])):
             note = await _existing_note(session, ancestor.existing_note_id, ancestor.title) if ancestor.existing_note_id else None
-            key = f"hub-{slug}-{i}"
+            key = f"parent-{slug}-{i}"
             ctx.nodes[key] = OutlineNode(
                 key=key, title=ancestor.title, summary=ancestor.summary or (note.summary if note else ""),
-                parent_keys=[previous] if previous else [], domains=[slug], hub=True, reuse=note is not None,
+                parent_keys=[previous] if previous else [], domains=[slug], placed=True, reuse=note is not None,
                 verdicts={slug: OverlapVerdict(kind="same", target_note_id=note.synapse_id)} if note else {},
             )
             previous = key
@@ -106,7 +108,7 @@ async def _existing_note(session: AsyncSession, note_id: str, label: str) -> Not
     try:
         return await note_index_repo.get_note(session, note_id)
     except note_index_repo.NoteNotFoundError as exc:
-        raise ValueError(f"the note {label!r} chosen as a hub or attachment no longer exists; place the topic again") from exc
+        raise ValueError(f"the note {label!r} chosen as a parent or attachment no longer exists; place the topic again") from exc
 
 
 def plan_info(ctx: DraftContext, max_parallel: int) -> PlanInfo:
@@ -120,6 +122,7 @@ def plan_info(ctx: DraftContext, max_parallel: int) -> PlanInfo:
 
     return PlanInfo(
         topic_mode=ctx.job.input_kind == "topic",
+        find_references=ctx.job.find_references,
         max_parallel=max_parallel,
         nodes=[
             PlanNode(
@@ -127,7 +130,7 @@ def plan_info(ctx: DraftContext, max_parallel: int) -> PlanInfo:
                 is_leaf=not ctx.children.get(n.key), height=height(n.key),
             )
             for n in ctx.nodes.values()
-            if not n.reuse  # an existing hub or attached note is used as it is, never written
+            if not n.reuse  # an existing parent or attached note is used as it is, never written
         ],
     )
 
@@ -151,17 +154,18 @@ async def effective_title(session: AsyncSession, node: OutlineNode, slug: str) -
 
 async def folder_for(session: AsyncSession, ctx: DraftContext, node: OutlineNode, slug: str) -> str:
     """A merge keeps its file's folder. A node under a parent shares the parent's folder, so a
-    topic's notes live together (an existing tree stays in its folder). A new top note starts its own."""
+    topic's notes live together (an existing tree stays in its folder). A new top note, a new parent
+    included, starts a folder named after itself, and so does a topic placed under an existing parent:
+    that parent's folder belongs to its other topics."""
     target = await merge_target(session, node, slug)
     if target:
         return posixpath.dirname(target.path)
-    if node.hub:
-        return HUB_FOLDER
     for parent_key in node.parent_keys:
         parent = ctx.nodes[parent_key]
         if slug in parent.domains:
-            # A topic under a hub gets its own folder; the hub's folder holds hubs only.
-            return sanitize_title(node.title) if parent.hub else await folder_for(session, ctx, parent, slug)
+            if parent.placed and parent.reuse:
+                return sanitize_title(node.title)
+            return await folder_for(session, ctx, parent, slug)
     return sanitize_title(node.title)
 
 
@@ -269,8 +273,8 @@ async def write_draft(
             child_info.append((await effective_title(session, ctx.nodes[k], slug), summary or ctx.nodes[k].summary))
         result = await write_synthesis(
             engine, job_id=ctx.job.id, node=node, domain_slug=slug, children=child_info, profile=profile,
-            existing_text=existing_text, prior_draft=prior_text, feedback=feedback, hub=node.hub,
-            top=not any(not ctx.nodes[pk].hub for pk in node.parent_keys),
+            existing_text=existing_text, prior_draft=prior_text, feedback=feedback, placed=node.placed,
+            top=not any(not ctx.nodes[pk].placed for pk in node.parent_keys),
         )
     body = result.value
     parents = await parent_titles(session, ctx, node, slug)
@@ -285,7 +289,7 @@ async def write_draft(
         meta = {
             "synapse_id": synapse_id,
             "topic_id": str(uuid.uuid5(_TOPIC_NAMESPACE, f"{ctx.job.id}:{node_key}")) if len(node.domains) > 1 else None,
-            "domain": slug, "hub": True if node.hub else None, "aliases": body.aliases, "summary": body.summary,
+            "domain": slug, "aliases": body.aliases, "summary": body.summary,
             "job_id": ctx.job.id, "created": date.today(),
         }
         text = assemble_note(NoteParts(title=title, meta=meta, body=body.render(), parents=parents, children=subtopics))
@@ -340,25 +344,66 @@ async def add_references(session: AsyncSession, engine: AgentEngine, ctx: DraftC
     return result.cost_usd
 
 
-async def add_related(session: AsyncSession, engine: AgentEngine, job_id: str, draft_id: str) -> float:
-    """Cross-links for one draft, from vault notes similar to it and from its sibling drafts."""
+async def dedupe_related_pairs(session: AsyncSession, job_id: str) -> int:
+    """Two drafts that list each other under Related keep that pair on one of them. Returns how many lines were removed."""
+    drafts = await note_draft_repo.list_for_job(session, job_id)
+    removed = 0
+    for domain_id in {d.domain_id for d in drafts}:
+        mine = [d for d in drafts if d.domain_id == domain_id]
+        losers = pair_losers({title_key(d.title): related_entries(d.body_md) for d in mine})
+        for d in mine:
+            drop = losers.get(title_key(d.title))
+            if not drop:
+                continue
+            text = remove_related_entries(d.body_md, drop)
+            if text != d.body_md:
+                removed += len(drop)
+                await note_draft_repo.upsert(session, job_id, d.domain_id, d.node_key, body_md=text)
+    if removed:
+        logger.info("job %s: %d duplicate Related link(s) removed, each pair kept on one note", job_id[:8], removed)
+    return removed
+
+
+def planned_hierarchy(ctx: DraftContext) -> dict[str, dict[str, set[str]]]:
+    """Per domain slug: title key of every note in the outline (and each existing note it uses) -> its parents' title keys."""
+    out: dict[str, dict[str, set[str]]] = {}
+    for n in ctx.nodes.values():
+        for slug in n.domains:
+            out.setdefault(slug, {})[title_key(n.title)] = {title_key(ctx.nodes[pk].title) for pk in n.parent_keys}
+    return out
+
+
+async def add_related(
+    session: AsyncSession, engine: AgentEngine, job_id: str, draft_id: str, planned: dict[str, set[str]]
+) -> float:
+    """Cross-links for one draft, from vault notes similar to it and from its sibling drafts. Whatever the hierarchy
+    already links the note to, its ancestors and descendants at any depth, is never offered. `planned` is this job's
+    own part of the hierarchy (new notes, and existing notes being attached under a new parent)."""
     drafts = await note_draft_repo.list_for_job(session, job_id)
     draft = next(d for d in drafts if d.id == draft_id)
     meta = draft.frontmatter or {}
+    tree = await note_index_repo.parent_map(session, draft.domain_id)
+    tree.update(planned)
+    tree.update({title_key(d.title): {title_key(t) for t in d.parents} for d in drafts if d.domain_id == draft.domain_id})
+    implied = family(title_key(draft.title), tree)
     candidates = await note_index_repo.find_candidates(
-        session, draft.domain_id, title=draft.title, aliases=list(meta.get("aliases") or []), summary=meta.get("summary") or ""
+        session, draft.domain_id, title=draft.title, aliases=list(meta.get("aliases") or []), summary=meta.get("summary") or "", limit=15
     )
-    candidates = [c for c in candidates if c.note.synapse_id not in (draft.target_note_id, meta.get("synapse_id"))]
-    hierarchy = {title_key(t) for t in draft.parents}
-    siblings = [d.title for d in drafts if d.domain_id == draft.domain_id and d.id != draft.id and title_key(d.title) not in hierarchy]
+    candidates = [
+        c for c in candidates
+        if c.note.synapse_id not in (draft.target_note_id, meta.get("synapse_id")) and title_key(c.note.title) not in implied
+    ]
+    siblings = [d.title for d in drafts if d.domain_id == draft.domain_id and d.id != draft.id and title_key(d.title) not in implied]
     result = await pick_related(
         engine, job_id=job_id, note_title=draft.title, note_summary=meta.get("summary") or "",
         candidates=candidates, sibling_titles=siblings,
     )
+    titles = {title_key(n.title): n.title for n in await note_index_repo.list_notes(session, draft.domain_id)}
+    titles.update({title_key(d.title): d.title for d in drafts if d.domain_id == draft.domain_id})
+    links = collapse_to_parents(result.value.links, tree, implied, title_key(draft.title), titles)
     text = draft.body_md
-    for link in result.value.links:
-        if title_key(link.title) not in hierarchy:
-            text = insert_link_line(text, "Related", (link.title, link.why))
+    for link in links:
+        text = insert_link_line(text, "Related", (link.title, link.entry_note))
     if text != draft.body_md:
         await note_draft_repo.upsert(session, job_id, draft.domain_id, draft.node_key, body_md=text)
     return result.cost_usd
@@ -377,7 +422,7 @@ async def check_draft(
     slug = next(s for s, d in ctx.domains.items() if d.id == draft.domain_id)
     result = await validate_note(
         engine, job_id=ctx.job.id, note_text=strip_link_sections(draft.body_md), node=node, profile=ctx.profile(slug),
-        dossier=_dossier_of(draft), note_kind="hub" if node.hub else "overview" if ctx.children.get(node.key) else "detailed",
+        dossier=_dossier_of(draft), note_kind="intro" if node.placed else "overview" if ctx.children.get(node.key) else "detailed",
     )
     issues += result.value.issues
     return NoteVerdict(ok=not issues, issues=issues), result.cost_usd

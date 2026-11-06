@@ -114,5 +114,6 @@ class PlanInfo(BaseModel):
     """The approved outline reduced to what the workflow needs to schedule work (no note content)."""
 
     topic_mode: bool
+    find_references: bool
     max_parallel: int
     nodes: list[PlanNode]

@@ -51,7 +51,7 @@ export function addChild(tree: Outline, parentKey: string, title: string): Outli
     domains: [...parent.domains],
     content_slice: null,
     verdicts: {},
-    hub: false,
+    placed: false,
     reuse: false,
   };
   return { ...tree, nodes: [...tree.nodes, node] };
@@ -111,7 +111,7 @@ export function subtreeKeys(tree: Outline, key: string): Set<string> {
   return out;
 }
 
-/** Replaces the hub path above the topic for one domain. Attached notes need a hub, so they are cleared with the last one. */
+/** Replaces the parent notes above the topic for one domain. Attached notes need a parent, so they are cleared with the last one. */
 export function setAncestors(tree: Outline, slug: string, ancestors: Ancestor[]): Outline {
   return {
     ...tree,
@@ -120,7 +120,7 @@ export function setAncestors(tree: Outline, slug: string, ancestors: Ancestor[])
   };
 }
 
-/** Ticks or unticks an existing top-level note to be attached under the innermost hub. */
+/** Ticks or unticks an existing top-level note to be attached under the innermost parent. */
 export function toggleAdopt(tree: Outline, slug: string, noteId: string): Outline {
   const current = tree.adopt[slug] ?? [];
   const next = current.includes(noteId) ? current.filter((id) => id !== noteId) : [...current, noteId];

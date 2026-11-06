@@ -12,6 +12,7 @@ import { SelectInput, TextInput } from "../../design/Field";
 import { LoadingBlock } from "../../design/Spinner";
 import { PageFrame } from "../../shell/PageFrame";
 import { DeleteDialog, type DeleteRequestInfo } from "./DeleteDialog";
+import { TidyLinks } from "./TidyLinks";
 
 const topicFolder = (note: Note) => (note.path.includes("/") ? note.path.split("/")[0] : null);
 
@@ -81,6 +82,8 @@ export function NotesPage() {
             <TextInput aria-label="Search notes" type="search" placeholder="Search by title or summary" value={q} onChange={(e) => setQ(e.target.value)} className="w-72 max-w-full" />
           </div>
 
+          <TidyLinks key={active} domain={active} />
+
           {notes.isLoading ? (
             <LoadingBlock label="Loading notes" />
           ) : notes.isError ? (
@@ -100,7 +103,6 @@ export function NotesPage() {
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-2 font-medium">
                           {n.title}
-                          {n.is_hub ? <Chip tone="info" title="Groups related topics">Hub</Chip> : null}
                           {n.user_modified ? <Chip tone="warn" title="Edited in Obsidian after Synapse wrote it">Edited by you</Chip> : null}
                           {n.twin_domains.map((t) => (
                             <Chip key={t}>Also in {names[t] ?? t}</Chip>

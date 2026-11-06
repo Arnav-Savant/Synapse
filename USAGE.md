@@ -25,7 +25,11 @@ Open **Ingest** and choose what you are submitting.
 
 Then pick a **domain**, or leave **Auto-detect**. Auto-detect reads the start of
 your input and chooses the vault; you see its choice and how sure it was at the
-next step. Press **Start**.
+next step.
+
+**Find web references** is on by default. It adds a References section to each
+note with links to pages an agent actually opened. Turn it off to skip that web
+search for every note in the job and spend less. Press **Start**.
 
 ## Jobs
 
@@ -59,15 +63,15 @@ while it is active.
 When a job reaches **Needs you** at the Outline stage, open it. You see the
 proposed notes as an indented tree, with the domain Synapse chose.
 
-- **Where the topic sits.** Above the tree, Synapse shows which hub(s) the topic goes under, for
-  example *Database internals* above *Buffer pool management*. A hub is a short overview note
-  that groups related topics. It is marked **Existing hub** when it is already in your vault, or
-  **New hub** when Synapse proposes to create it. It uses as few levels as make sense (none, one or
-  two) and reuses a hub you already have whenever one fits. You can pick a different hub, write the
-  title and one-line summary of a new one, add or remove a level, or leave the topic with no hub.
-  When a hub is chosen, the notes you already have that sit at the top level appear as a checklist:
-  tick the ones that belong in the same area to attach them under the hub. Only their parent link
-  changes; their text is not touched.
+- **Where the topic sits.** Above the tree, Synapse shows which parent note(s) the topic goes under,
+  for example *Database internals* above *Buffer pool management*. A parent is a short overview note
+  that groups related topics. It is marked **Existing parent** when it is already in your vault, or
+  **New parent** when Synapse proposes to create it. It uses as few levels as make sense (none, one
+  or two) and reuses a note you already have whenever one fits. You can pick a different parent, write
+  the title and one-line summary of a new one, add or remove a level, or leave the topic with no
+  parent. When a parent is chosen, the notes you already have that sit at the top level appear as a
+  checklist: tick the ones that belong in the same area to attach them under the parent. Only their
+  parent link changes; their text is not touched.
 - **Untick a note** to leave it out together with everything beneath it. Tick it
   again to bring it back. The overview note at the top is always written.
 - **Add subtopic** under any note to add a note of your own.
@@ -103,7 +107,7 @@ to read it on the right:
   support, a link to a note that does not exist, and so on. Notes with something
   to check carry a chip in the list.
 - **Also changes existing notes** lists the small additions that approving will make in notes
-  you already have: a link added to a hub's Subtopics, and existing notes attached under a hub.
+  you already have: a link added to a parent's Subtopics, and existing notes attached under a parent.
 
 To ask for changes, use the form under the note: choose whether the change
 applies to **one section**, **this whole note** or **the whole topic**, say what
@@ -152,12 +156,13 @@ Up: [[Anomalies]]
 - [PostgreSQL: Transaction Isolation](https://…): the official description
 ```
 
-- The **file name is the note title**, and titles are unique within a vault. Hubs sit together in a
-  `Hubs` folder and have `hub: true` in their frontmatter; a topic's notes sit in a folder named
-  after its top note.
+- The **file name is the note title**, and titles are unique within a vault. A topic's notes sit in a
+  folder named after its top note. A new parent starts a folder named after itself, and the notes
+  under it share that folder.
 - **Up** links to the note's parent; **Subtopics** lists its children;
-  **Related** holds cross-links that make the graph dense; **References** lists
-  credible sources, official documentation first.
+  **Related** holds sparse cross-links only: a note never lists its own ancestors or
+  descendants there, since the tree already links them, and each entry is a *Prerequisite* or
+  a *Contrast* with a one-line reason. A pair of notes is linked on one of them. **References** lists credible sources, official documentation first.
 - Overview and parent notes compare their children instead of repeating them.
   Detailed notes follow the section headings of their domain's profile.
 - A topic that belongs to more than one domain is written once per vault, each
@@ -165,10 +170,16 @@ Up: [[Anomalies]]
 
 ## Notes
 
-**Notes** lists what Synapse has written to a vault, with a search box. A hub is
-marked **Hub**. A note
+**Notes** lists what Synapse has written to a vault, with a search box. A note
 you changed in Obsidian after Synapse wrote it is marked **Edited by you**; one
 that also exists in another vault shows **Also in …**.
+
+**Tidy related links** thins the Related sections of notes already in the vault. It first
+shows which links in which notes would go: links that only repeat the tree (a note linking
+to its own parent or child) and the second copy of a pair two notes list on each other.
+Nothing changes until you confirm, and then only those lines are removed. **Also review the
+rest with Claude** asks a small, cheap agent which remaining links are a prerequisite or a
+direct contrast; it shows its proposal for you to confirm.
 
 **Delete** on a row offers *This note*, *Whole topic* and *Everything from its
 job* (and, for notes that exist in two vaults, *This vault only* or *Every

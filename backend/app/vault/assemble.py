@@ -162,6 +162,43 @@ def section_span(text: str, section: str) -> tuple[int, int] | None:
     return start, sum(len(l) for l in lines[: bounds[1]])
 
 
+def related_entries(text: str) -> list[tuple[str, str]]:
+    """(link target, the note after the colon) for each entry in a note's `## Related` section."""
+    entries = []
+    for line in section_lines(split_frontmatter(text)[1], "Related"):
+        match = _WIKI_ENTRY.match(line)
+        if match:
+            entries.append((match.group(1).split("|")[0].split("#")[0].strip(), match.group(2) or ""))
+    return entries
+
+
+def related_targets(text: str) -> list[str]:
+    """The link targets listed in a note's `## Related` section, in order."""
+    _, body = split_frontmatter(text)
+    span = section_span(body, "Related")
+    return [l.target for l in find_wikilinks(body[span[0] : span[1]]) if l.target] if span else []
+
+
+def remove_related_entries(text: str, target_keys: set[str]) -> str:
+    """Removes the `## Related` list entries whose link target (via `title_key`) is in `target_keys`. Every other
+    line stays byte-identical; the heading goes too when no entry is left."""
+    lines = text.splitlines(keepends=True)
+    bounds = _section_bounds(lines, "Related")
+    if bounds is None:
+        return text
+    kept = lines[: bounds[0] + 1]
+    for line in lines[bounds[0] + 1 : bounds[1]]:
+        links = find_wikilinks(line)
+        if line.lstrip().startswith("-") and links and title_key(links[0].target) in target_keys:
+            continue
+        kept.append(line)
+    if not any(l.strip() for l in kept[bounds[0] + 1 :]):  # nothing left: the heading goes with its blank line above
+        kept = kept[: bounds[0]]
+        if kept and kept[-1].strip() == "":
+            kept.pop()
+    return "".join(kept + lines[bounds[1] :])
+
+
 def _set_up_line(body: str, parents: list[str]) -> str:
     nl = "\r\n" if "\r\n" in body else "\n"
     lines = body.splitlines(keepends=True)

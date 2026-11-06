@@ -23,11 +23,12 @@ _DEFAULTS: dict[str, tuple[str, str, dict]] = {
     ),
     "placer": ("claude-sonnet-5-5", "low", {}),
     "linker": ("claude-sonnet-5-5", "low", {}),
-    "writer": ("claude-opus-5-5", "high", {}),
+    "writer": ("claude-sonnet-5-5", "high", {}),
     "synthesizer": ("claude-sonnet-5-5", "medium", {}),
     "reference_finder": ("claude-haiku-5-5", "low", {}),
-    "validator": ("claude-sonnet-5-5", "high", {}),
+    "validator": ("claude-sonnet-5-5", "medium", {}),
     "profile_builder": ("claude-sonnet-5-5", "medium", {}),
+    "link_pruner": ("claude-haiku-5-5", "low", {}),
 }
 
 

@@ -51,12 +51,12 @@ class LinkAddition(BaseModel):
 
 
 class ReparentAddition(BaseModel):
-    """An existing top-level note attached under a hub by changing only its parent link; its text is untouched."""
+    """An existing top-level note attached under a parent by changing only its parent link; its text is untouched."""
 
     note_id: str
     note_title: str
     domain_slug: str
-    hub_title: str
+    parent_title: str
 
 
 def _sha(text: str) -> str:
@@ -72,8 +72,9 @@ def select_drafts(drafts: list[NoteDraft], slug_of: dict[str, str], node_keys: l
 
 
 async def planned_link_additions(session: AsyncSession, ctx: DraftContext, drafts: list[NoteDraft]) -> list[LinkAddition]:
-    """Single lines added to EXISTING notes when these drafts are approved: a back-link in the note a new one partly
-    overlaps (`partial` verdict), and the new notes' entries in an existing hub's Subtopics."""
+    """Single lines added to EXISTING notes when these drafts are approved: the new notes' entries in an existing
+    parent's Subtopics. A note a new one partly overlaps is not edited; the link lives on the new note, and
+    Obsidian's backlinks show the other direction."""
     slug_of = {d.id: s for s, d in ctx.domains.items()}
     additions: list[LinkAddition] = []
     for draft in drafts:
@@ -81,18 +82,10 @@ async def planned_link_additions(session: AsyncSession, ctx: DraftContext, draft
         node = ctx.nodes.get(draft.node_key)
         if draft.kind != "new" or node is None:
             continue
-        verdict = node.verdicts.get(slug)
-        if verdict is not None and verdict.kind == "partial" and verdict.target_note_id:
-            target = await _find_note(session, verdict.target_note_id)
-            if target is not None:
-                additions.append(LinkAddition(
-                    note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Related",
-                    entry_title=draft.title, entry_note=verdict.reason or "overlapping topic",
-                ))
         for parent_key in node.parent_keys:
-            hub = ctx.nodes[parent_key]
-            if hub.hub and hub.reuse and slug in hub.domains:
-                target = await _find_note(session, hub.verdicts[slug].target_note_id)
+            parent_node = ctx.nodes[parent_key]
+            if parent_node.placed and parent_node.reuse and slug in parent_node.domains:
+                target = await _find_note(session, parent_node.verdicts[slug].target_note_id)
                 if target is not None:
                     additions.append(LinkAddition(
                         note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Subtopics",
@@ -112,25 +105,25 @@ async def _find_note(session: AsyncSession, note_id: str | None):
 
 
 def _adopted(ctx: DraftContext, drafts: list[NoteDraft], slug_of: dict[str, str]):
-    """(adopted note node, the hub node it goes under) for every domain whose topic is being approved."""
+    """(adopted note node, the parent node it goes under) for every domain whose topic is being approved."""
     approved = {(d.node_key, slug_of[d.domain_id]) for d in drafts}
     for node in ctx.nodes.values():
         if not node.key.startswith("adopt-") or not node.parent_keys:
             continue
         slug = node.domains[0]
-        hub = ctx.nodes[node.parent_keys[0]]
-        topic_root = next((c for c in ctx.children.get(hub.key, []) if not ctx.nodes[c].reuse), None)
+        parent_node = ctx.nodes[node.parent_keys[0]]
+        topic_root = next((c for c in ctx.children.get(parent_node.key, []) if not ctx.nodes[c].reuse), None)
         if topic_root is not None and (topic_root, slug) in approved:
-            yield node, hub, slug
+            yield node, parent_node, slug
 
 
 async def _adoption_links(ctx: DraftContext, drafts: list[NoteDraft], slug_of: dict[str, str], session: AsyncSession) -> list[LinkAddition]:
-    """When the hub already exists it is not rewritten, so each attached note is added to its Subtopics line by line."""
+    """When the parent already exists it is not rewritten, so each attached note is added to its Subtopics line by line."""
     out: list[LinkAddition] = []
-    for node, hub, slug in _adopted(ctx, drafts, slug_of):
-        if not (hub.hub and hub.reuse):
+    for node, parent_node, slug in _adopted(ctx, drafts, slug_of):
+        if not (parent_node.placed and parent_node.reuse):
             continue
-        target = await _find_note(session, hub.verdicts[slug].target_note_id)
+        target = await _find_note(session, parent_node.verdicts[slug].target_note_id)
         if target is not None:
             out.append(LinkAddition(
                 note_id=target.synapse_id, note_title=target.title, domain_slug=slug, section="Subtopics",
@@ -142,8 +135,8 @@ async def _adoption_links(ctx: DraftContext, drafts: list[NoteDraft], slug_of: d
 def planned_reparents(ctx: DraftContext, drafts: list[NoteDraft]) -> list[ReparentAddition]:
     slug_of = {d.id: s for s, d in ctx.domains.items()}
     return [
-        ReparentAddition(note_id=node.verdicts[slug].target_note_id or "", note_title=node.title, domain_slug=slug, hub_title=hub.title)
-        for node, hub, slug in _adopted(ctx, drafts, slug_of)
+        ReparentAddition(note_id=node.verdicts[slug].target_note_id or "", note_title=node.title, domain_slug=slug, parent_title=parent_node.title)
+        for node, parent_node, slug in _adopted(ctx, drafts, slug_of)
     ]
 
 
@@ -243,7 +236,6 @@ async def _commit_one(session: AsyncSession, vault: Path, domain_id: str, draft:
         aliases=[str(a) for a in (meta.get("aliases") or [])], summary=str(meta.get("summary") or ""),
         content_hash=content_hash, topic_id=meta.get("topic_id"), job_id=meta.get("job_id"),
         user_modified=False,  # this version began from the file on disk, so the owner's edits are in it
-        is_hub=meta.get("hub") is True,
     )
     return "committed"
 
@@ -282,21 +274,21 @@ async def discard_unselected(session: AsyncSession, job_id: str, node_keys: list
 
 
 async def _apply_reparent(session: AsyncSession, vault: Path, r: ReparentAddition) -> None:
-    """Adds the hub to an existing note's `parents` and `Up:` line. The body is not touched, and `user_modified`
+    """Adds the parent to an existing note's `parents` and `Up:` line. The body is not touched, and `user_modified`
     stays as it was."""
     try:
         note = await note_index_repo.get_note(session, r.note_id)
         path = resolve_in_vault(vault, *note.path.split("/"))
         text = path.read_text(encoding="utf-8")
     except (note_index_repo.NoteNotFoundError, VaultPathError, FileNotFoundError) as exc:
-        logger.warning("could not attach %r under %r (%s); skipping", r.note_title, r.hub_title, exc)
+        logger.warning("could not attach %r under %r (%s); skipping", r.note_title, r.parent_title, exc)
         return
     parents = parent_titles_from_text(text)
-    if any(p.casefold() == r.hub_title.casefold() for p in parents):
+    if any(p.casefold() == r.parent_title.casefold() for p in parents):
         return
-    updated = set_parents(text, [*parents, r.hub_title])
+    updated = set_parents(text, [*parents, r.parent_title])
     if updated == text:
         return
     note.content_hash = write_note_atomic(path, updated)
     await reindex_note_links(session, note, updated)
-    logger.info("note %r attached under hub %r", r.note_title, r.hub_title)
+    logger.info("note %r attached under parent %r", r.note_title, r.parent_title)

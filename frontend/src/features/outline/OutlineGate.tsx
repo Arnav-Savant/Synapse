@@ -59,8 +59,8 @@ export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => vo
   });
 
   const kept = useMemo(() => (tree ? applyExclusions(tree, excluded) : null), [tree, excluded]);
-  const newHubs = kept ? Object.values(kept.ancestors).reduce((sum, list) => sum + list.filter((a) => !a.existing_note_id).length, 0) : 0;
-  const noteCount = (kept ? kept.nodes.reduce((sum, n) => sum + n.domains.length, 0) : 0) + newHubs;
+  const newParents = kept ? Object.values(kept.ancestors).reduce((sum, list) => sum + list.filter((a) => !a.existing_note_id).length, 0) : 0;
+  const noteCount = (kept ? kept.nodes.reduce((sum, n) => sum + n.domains.length, 0) : 0) + newParents;
   const vaultCount = kept ? new Set(kept.nodes.flatMap((n) => n.domains)).size : 0;
   const leftOut = tree && kept ? tree.nodes.length - kept.nodes.length : 0;
 
@@ -120,7 +120,7 @@ export function OutlineGate({ jobId, onBack }: { jobId: string; onBack: () => vo
               topicTitle={tree.topic_title}
               ancestors={tree.ancestors[slug] ?? []}
               attached={tree.adopt[slug] ?? []}
-              hubs={view.data!.placement[slug]?.hubs ?? []}
+              parents={view.data!.placement[slug]?.parents ?? []}
               notes={view.data!.placement[slug]?.notes ?? []}
               onAncestors={(list) => edit((t) => setAncestors(t, slug, list))}
               onToggleNote={(id) => edit((t) => toggleAdopt(t, slug, id))}

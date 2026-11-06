@@ -66,15 +66,22 @@ class WritingActivities:
     @activity.defn
     async def link_related(self, job_id: str) -> None:
         async with self._session_factory() as session:
-            draft_ids = [d.id for d in await note_draft_repo.list_for_job(session, job_id)]
+            drafts = await note_draft_repo.list_for_job(session, job_id)
+            draft_ids = [d.id for d in drafts]
+            ctx = await draft_service.load_context(session, job_id)
+            planned = draft_service.planned_hierarchy(ctx)
+            slug_of = {d.id: s for s, d in ctx.domains.items()}
         gate = asyncio.Semaphore(self._max_parallel)
 
         async def one(draft_id: str) -> float:
             async with gate, self._session_factory() as session:
-                return await draft_service.add_related(session, self._engine, job_id, draft_id)
+                domain_id = next(d.domain_id for d in drafts if d.id == draft_id)
+                return await draft_service.add_related(session, self._engine, job_id, draft_id, planned.get(slug_of[domain_id], {}))
 
         async def all_drafts(session, ctx) -> float:
-            return sum(await asyncio.gather(*(one(d) for d in draft_ids)))
+            cost = sum(await asyncio.gather(*(one(d) for d in draft_ids)))
+            await draft_service.dedupe_related_pairs(session, job_id)
+            return cost
 
         await self._step(job_id, "related", "linker", all_drafts)
         logger.info("job %s: related links added to %d draft(s)", job_id[:8], len(draft_ids))

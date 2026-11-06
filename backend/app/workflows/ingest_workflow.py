@@ -236,11 +236,12 @@ class IngestTopicWorkflow:
                 limit,
             )
 
-        await self._mark(job_id, "references", "running")
-        await self._all(
-            [lambda n=n: self._act("find_node_references", job_id, n.key, timeout=timedelta(minutes=10), agent=True) for n in leaves],
-            limit,
-        )
+        if plan.find_references:  # the owner can switch the web reference search off for a job
+            await self._mark(job_id, "references", "running")
+            await self._all(
+                [lambda n=n: self._act("find_node_references", job_id, n.key, timeout=timedelta(minutes=10), agent=True) for n in leaves],
+                limit,
+            )
         await self._mark(job_id, "related", "running")
         await self._act("link_related", job_id, timeout=timedelta(minutes=20), agent=True)
 

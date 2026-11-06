@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.outline import Outline
-from app.schemas.placement import HubInfo, NoteBrief
+from app.schemas.placement import NoteBrief, ParentInfo
 
 MAX_INPUT_CHARS = 200_000
 CLASSIFIER_CONFIDENCE_THRESHOLD = 0.7
@@ -25,6 +25,7 @@ class CreateJobRequest(BaseModel):
     input_kind: Literal["topic", "content"]
     text: str
     domain_choice: str = "auto"  # a domain slug, or "auto"
+    find_references: bool = True  # false skips the web reference search for every note in the job
 
 
 class JobOut(BaseModel):
@@ -51,9 +52,9 @@ class JobDetail(JobOut):
 
 
 class PlacementOptions(BaseModel):
-    """What one vault offers: hubs the topic can sit under, and top-level notes that can be attached beside it."""
+    """What one vault offers: notes the topic can sit under, and top-level notes that can be attached beside it."""
 
-    hubs: list[HubInfo]
+    parents: list[ParentInfo]
     notes: list[NoteBrief]
 
 
@@ -88,7 +89,7 @@ class LinkAdditionView(BaseModel):
 
 class AttachmentView(BaseModel):
     note_title: str
-    hub_title: str
+    parent_title: str
     domain_slug: str
 
 

@@ -39,7 +39,6 @@ class NoteOut(BaseModel):
     summary: str
     domain_slug: str
     user_modified: bool
-    is_hub: bool
     job_id: str | None  # the job that created it; lets the owner delete everything one job made
     twin_domains: list[str]  # other vaults holding a note on the same subject
 
@@ -60,6 +59,37 @@ class DeleteSelector(BaseModel):
 
 class DeleteRequest(DeleteSelector):
     confirm_modified: bool = False
+
+
+class TidyEdit(BaseModel):
+    """A note whose Related section would lose some entries."""
+
+    note: NoteRef
+    remove: list[str]  # entries the rules remove: they repeat the tree, or the pair is kept on the other note
+    review: list[str] = []  # entries the link reviewer judged not essential; removed only if the owner confirms
+
+
+class TidyPlan(BaseModel):
+    domain_slug: str
+    edits: list[TidyEdit]
+    links: int
+    reviewed: bool  # true when the agent review ran
+    cost_usd: float
+
+
+class TidyRemoval(BaseModel):
+    note_id: str
+    titles: list[str]
+
+
+class TidyRequest(BaseModel):
+    domain_slug: str
+    extra: list[TidyRemoval] = []  # reviewed entries the owner confirmed, on top of the rule-based ones
+
+
+class TidyResult(BaseModel):
+    notes_changed: int
+    links_removed: int
 
 
 class DeleteResponse(BaseModel):

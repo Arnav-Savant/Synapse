@@ -18,15 +18,15 @@ class OverlapVerdict(BaseModel):
     reason: str = ""
 
 
-MAX_HUB_LEVELS = 2  # hubs allowed above a topic's top note; 0, 1 or 2
+MAX_PARENT_LEVELS = 2  # new or reused parent notes allowed above a topic's top note; 0, 1 or 2
 
 
 class Ancestor(BaseModel):
-    """One hub level above the topic's top note, outermost first."""
+    """One parent note above the topic's top note, outermost first."""
 
     title: str
     summary: str = ""
-    existing_note_id: str | None = None  # set when this reuses a hub already in the vault
+    existing_note_id: str | None = None  # set when this reuses a parent note already in the vault
 
 
 class OutlineNode(BaseModel):
@@ -37,17 +37,17 @@ class OutlineNode(BaseModel):
     domains: list[str] = Field(default_factory=list)  # domain slugs; empty until the job fills in the resolved domains
     content_slice: str | None = None  # content-given mode: the part of the input that belongs to this node
     verdicts: dict[str, OverlapVerdict] = Field(default_factory=dict)  # keyed by domain slug
-    # Set only on nodes the job builds around the outline (never by agents): a hub note, and/or an
+    # Set only on nodes the job builds around the outline (never by agents): a placed parent note, and/or an
     # existing note that is used as it is rather than written.
-    hub: bool = False
+    placed: bool = False  # a parent note the placement put above the topic: it has no source passages of its own
     reuse: bool = False
 
 
 class Outline(BaseModel):
     topic_title: str
     nodes: list[OutlineNode]
-    # Where the topic sits, per domain slug: hub levels above its top note (outermost first), and existing
-    # top-level notes to attach under the innermost hub by changing only their parent link.
+    # Where the topic sits, per domain slug: parent notes above its top note (outermost first), and existing
+    # top-level notes to attach under the innermost parent by changing only their parent link.
     ancestors: dict[str, list[Ancestor]] = Field(default_factory=dict)
     adopt: dict[str, list[str]] = Field(default_factory=dict)
 

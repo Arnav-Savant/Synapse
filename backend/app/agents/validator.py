@@ -47,7 +47,7 @@ async def validate_note(
     kind_text = {
         "detailed": f"Depth sections a detailed note of this kind should have (any with no substance for the subject may be absent):\n{depth}",
         "overview": "This is an overview or parent note. It frames and compares its subtopics and is not expected to have the detailed-note sections; do not report missing_depth_section.",
-        "hub": "This is a hub note: a short orientation to an area that groups several topics. It is deliberately brief and not expected to have detailed-note sections; do not report missing_depth_section.",
+        "intro": "This is a parent note: a short orientation to an area that groups several topics. It is deliberately brief and not expected to have detailed-note sections; do not report missing_depth_section.",
     }[note_kind]
     prompt = (
         "You review a draft study note before the owner sees it. Report only real problems; a good note gets an empty "

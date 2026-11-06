@@ -92,7 +92,7 @@ export function DraftReview({ jobId, onBack }: { jobId: string; onBack: () => vo
                 <ul className="flex flex-col gap-1 text-sm">
                   {drafts.data!.attachments.map((a, i) => (
                     <li key={`attach-${i}`} className="text-muted">
-                      Attaches <span className="font-medium text-fg">[[{a.note_title}]]</span> under <span className="font-medium text-fg">[[{a.hub_title}]]</span>
+                      Attaches <span className="font-medium text-fg">[[{a.note_title}]]</span> under <span className="font-medium text-fg">[[{a.parent_title}]]</span>
                     </li>
                   ))}
                   {drafts.data!.link_additions.map((a, i) => (

@@ -105,7 +105,7 @@ class OutlineActivities:
 
     @activity.defn
     async def place_topic(self, job_id: str) -> None:
-        """Decides which hub(s) the topic sits under, per domain, for any domain not placed yet."""
+        """Decides which parent note(s) the topic sits under, per domain, for any domain not placed yet."""
         async with self._session_factory() as session:
             job = await job_repo.get_job(session, job_id)
             outline = await outline_draft_repo.get(session, job_id)
@@ -115,18 +115,18 @@ class OutlineActivities:
             work = []
             for slug in todo:
                 domain = await domain_repo.get_by_slug(session, slug)
-                hubs, notes = await placement_service.load_options(session, domain.id)
-                work.append((slug, domain, hubs, notes))
+                parents, notes = await placement_service.load_options(session, domain.id)
+                work.append((slug, domain, parents, notes))
         if not work:
             return
         root = next(n for n in outline.nodes if not n.parent_keys)
         subtopics = [n.title for n in outline.nodes if n.key != root.key]
 
-        async def place(slug, domain, hubs, notes):
+        async def place(slug, domain, parents, notes):
             snapshot = (job.profile_snapshot or {}).get(slug, {})
             return slug, notes, await place_topic(
                 self._engine, job_id=job_id, domain_name=snapshot.get("name", domain.name),
-                domain_purpose=snapshot.get("purpose", domain.purpose), root=root, subtopics=subtopics, hubs=hubs, notes=notes,
+                domain_purpose=snapshot.get("purpose", domain.purpose), root=root, subtopics=subtopics, parents=parents, notes=notes,
             )
 
         results = await with_heartbeat(asyncio.gather(*(place(*w) for w in work)))
@@ -169,7 +169,7 @@ class OutlineActivities:
         async def judge(node, slug: str):
             async with self._session_factory() as session:
                 candidates = await note_index_repo.find_candidates(
-                    session, domain_ids[slug], title=node.title, aliases=[], summary=node.summary, include_hubs=False
+                    session, domain_ids[slug], title=node.title, aliases=[], summary=node.summary, leaf_only=True
                 )
             return node, slug, await judge_overlap(self._engine, job_id=job_id, node=node, domain=slug, candidates=candidates)
 

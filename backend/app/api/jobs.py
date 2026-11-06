@@ -56,7 +56,10 @@ def _out(job: Job) -> JobOut:
 async def create_job(
     body: CreateJobRequest, session: AsyncSession = Depends(postgres_connection.get_session), client: Client = Depends(get_temporal)
 ) -> JobOut:
-    job = await job_service.start_job(session, client, input_kind=body.input_kind, text=body.text, domain_choice=body.domain_choice)
+    job = await job_service.start_job(
+        session, client, input_kind=body.input_kind, text=body.text, domain_choice=body.domain_choice,
+        find_references=body.find_references,
+    )
     return _out(job)
 
 
@@ -88,8 +91,8 @@ async def get_outline(job_id: str, session: AsyncSession = Depends(postgres_conn
     confidence = job.classifier_confidence
     placement: dict[str, PlacementOptions] = {}
     for slug in job.resolved_domains or []:
-        hubs, notes = await placement_service.load_options(session, (await domain_repo.get_by_slug(session, slug)).id)
-        placement[slug] = PlacementOptions(hubs=hubs, notes=notes)
+        parents, notes = await placement_service.load_options(session, (await domain_repo.get_by_slug(session, slug)).id)
+        placement[slug] = PlacementOptions(parents=parents, notes=notes)
     return OutlineView(
         outline=outline, placement=placement, resolved_domains=job.resolved_domains or [], classifier_confidence=confidence,
         low_confidence=confidence is not None and confidence < CLASSIFIER_CONFIDENCE_THRESHOLD,
@@ -139,7 +142,7 @@ async def get_drafts(job_id: str, session: AsyncSession = Depends(postgres_conne
     additions = await commit_service.planned_link_additions(session, ctx, drafts)
     attachments = commit_service.planned_reparents(ctx, drafts)
     return DraftsResponse(
-        attachments=[AttachmentView(note_title=a.note_title, hub_title=a.hub_title, domain_slug=a.domain_slug) for a in attachments],
+        attachments=[AttachmentView(note_title=a.note_title, parent_title=a.parent_title, domain_slug=a.domain_slug) for a in attachments],
         drafts=views,
         link_additions=[
             LinkAdditionView(note_title=a.note_title, domain_slug=a.domain_slug, section=a.section, entry_title=a.entry_title)

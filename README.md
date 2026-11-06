@@ -1,7 +1,7 @@
 # Synapse
 
 Synapse turns a topic name or a pile of pasted material into a set of
-well-structured, densely linked study notes, and writes them into
+well-structured, linked study notes, and writes them into
 [Obsidian](https://obsidian.md) vaults on your own machine.
 
 You give it something to learn: a topic you know nothing about, or notes you
@@ -22,13 +22,14 @@ your own Claude subscription.
 - **Domains, each with its own vault.** A domain is an area you study, such as
   System Design or DSA. Each has a profile that sets how deep its notes go, what
   is in scope and what tone to use. You define your own.
-- **A hierarchy, not a pile of files.** Each topic sits under a hub, a short overview note that
-  groups related topics (for example *Database internals*). Synapse reuses an existing hub when one
+- **A hierarchy, not a pile of files.** Each topic can sit under a parent note, a short overview that
+  groups related topics (for example *Database internals*). Synapse reuses an existing parent when one
   fits, creates a new one only when none does, never stacks more than two levels, and can attach notes
-  you already have to a new hub.
-- **A dense graph.** New material that overlaps an existing
-  note is merged into it, or linked to it. Every note links to its parent, its
-  subtopics and related notes.
+  you already have to a new parent. A parent is an ordinary note.
+- **A graph you can navigate.** Every note links to its parent and its subtopics, so the tree carries
+  the structure. Related links are cross-links only: a note never lists its own ancestors or
+  descendants there, and each one is a prerequisite or a contrast with a reason, and a pair is written on one note only. New material that overlaps
+  an existing note is merged into it, or linked to it.
 - **Your edits are safe.** Edit notes in Obsidian whenever you like. Synapse
   never overwrites a file you changed; it merges against the file as it is now.
 - **Clean deletes.** Deleting a note removes the links to it, so Obsidian never

@@ -1,6 +1,7 @@
 """Linker: overlap verdicts for outline nodes, and `## Related` links for notes."""
 
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, create_model, model_validator
@@ -14,7 +15,8 @@ from app.vault.titles import title_key
 logger = logging.getLogger(__name__)
 
 _SLICE_DIGEST_CHARS = 1500
-MAX_RELATED = 8
+_GENERIC_REASON = re.compile(r"^(a |an |the )?(closely |also |highly |directly |broadly )?(related|similar|relevant)\b[\w\s]{0,20}$", re.IGNORECASE)
+_MIN_REASON_WORDS = 4
 
 
 class _OverlapChoice(BaseModel):
@@ -58,7 +60,7 @@ async def judge_overlap(
         + f"\nExisting notes that look similar:\n{_candidate_block(candidates)}\n\n"
         "Verdict, judged on meaning rather than wording:\n"
         "- same: the planned note is the same subject as that existing note. It should be merged into it.\n"
-        "- partial: related and overlapping, but a genuinely separate note is warranted. It will link to the existing one.\n"
+        "- partial: related and overlapping, but a genuinely separate note is warranted. The new note is offered the existing one as a possible cross-link.\n"
         "- distinct: none of them is really the same subject.\n"
         "For same or partial set `target_note_id` to that note's id. `reason` is one short sentence."
     )
@@ -70,11 +72,24 @@ async def judge_overlap(
 
 class RelatedLink(BaseModel):
     title: str
-    why: str = Field(description="one line on how the notes relate")
+    kind: Literal["prerequisite", "contrast"] = Field(
+        description="prerequisite: read the other note first; contrast: the direct alternative or counterpart to tell this note apart from"
+    )
+    why: str = Field(description="one sentence: what the reader needs from the other note, or how the two differ")
+
+    @property
+    def entry_note(self) -> str:
+        return f"{self.kind.capitalize()}: {self.why.strip()}"
 
 
 class RelatedList(BaseModel):
     links: list[RelatedLink]
+
+
+def _has_real_reason(why: str) -> bool:
+    """A link must say why. An empty line or a bare "related" / "similar topic" is not a reason."""
+    text = why.strip()
+    return len(text.split()) >= _MIN_REASON_WORDS and not _GENERIC_REASON.match(text)
 
 
 async def pick_related(
@@ -86,7 +101,9 @@ async def pick_related(
     candidates: list[Candidate],
     sibling_titles: list[str],
 ) -> RunResult[RelatedList]:
-    """Cross-links for `## Related`. Titles that are not among the inputs are dropped."""
+    """Cross-links for `## Related`. `candidates` and `sibling_titles` are already free of the note's ancestors and
+    descendants, which the hierarchy links anyway. Titles that are not among the inputs are dropped, and so is a
+    link that gives no real reason. There is no cap on how many links a note may have."""
     allowed = {title_key(c.note.title): c.note.title for c in candidates}
     allowed.update({title_key(t): t for t in sibling_titles})
     allowed.pop(title_key(note_title), None)
@@ -96,23 +113,35 @@ async def pick_related(
     options = _candidate_block(candidates)
     siblings = "\n".join(f"- {t}" for t in sibling_titles if title_key(t) != title_key(note_title))
     prompt = (
-        "You choose the cross-links for the `Related` section of a study note, so the notes form a dense, useful graph.\n\n"
+        "You choose the cross-links for the `Related` section of a study note.\n\n"
         f"Note: {note_title}\nSummary: {note_summary}\n\n"
         + (f"Existing notes in the vault:\n{options}\n\n" if options else "")
         + (f"Other notes being written in the same batch:\n{siblings}\n\n" if siblings else "")
-        + f"Pick up to {MAX_RELATED} of the listed notes that a reader of this note would genuinely want next: prerequisites, "
-        "contrasts, alternatives, deeper dives. Use each title exactly as listed. Skip weak links; an empty list is fine. "
-        "Do not include this note itself."
+        + "The note's parents, children and the notes above and below it are already linked by the hierarchy and are not "
+        "listed. Keep the graph sparse: a cross-link is allowed only for one of two reasons.\n"
+        "- prerequisite: the reader must understand the other note before this one makes sense.\n"
+        "- contrast: the other note is the direct alternative or counterpart this note must be told apart from.\n"
+        "Being in the same area, sharing a parent, or being useful background is not enough; notes under one parent are "
+        "already one click apart through it. When in doubt, leave the link out. Most notes need none or one, and an empty "
+        "list is the expected answer. Use each title exactly as listed, and do not include this note itself. `why` is one "
+        "sentence."
     )
     result = await run_structured(engine, role="linker", job_id=job_id, prompt=prompt, model_cls=RelatedList)
     seen: set[str] = set()
     links: list[RelatedLink] = []
+    unknown = unreasoned = 0
     for link in result.value.links:
         key = title_key(link.title)
-        if key in allowed and key not in seen:
+        if key not in allowed:
+            unknown += 1
+        elif not _has_real_reason(link.why):
+            unreasoned += 1
+        elif key not in seen:
             seen.add(key)
-            links.append(RelatedLink(title=allowed[key], why=link.why))
-    dropped = len(result.value.links) - len(links)
-    if dropped:
-        logger.warning("job %s: dropped %d related link(s) for %r that were not among the offered notes", job_id[:8], dropped, note_title)
-    return RunResult(value=RelatedList(links=links[:MAX_RELATED]), cost_usd=result.cost_usd, fetched_urls=result.fetched_urls)
+            links.append(RelatedLink(title=allowed[key], kind=link.kind, why=link.why.strip()))
+    if unknown or unreasoned:
+        logger.warning(
+            "job %s: for %r dropped %d related link(s) not among the offered notes and %d with no real reason",
+            job_id[:8], note_title, unknown, unreasoned,
+        )
+    return RunResult(value=RelatedList(links=links), cost_usd=result.cost_usd, fetched_urls=result.fetched_urls)
