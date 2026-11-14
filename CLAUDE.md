@@ -7,7 +7,8 @@ Orientation for AI coding sessions in this repository.
 Synapse is a personal, single-user, local-first tool that turns a topic name or pasted
 material into linked study notes and writes them into Obsidian vaults, one vault per
 domain. The owner approves an outline and then the drafts; nothing reaches a vault before
-that. A FastAPI backend and a Temporal worker (inside the backend process) run each job as a
+that. Study chat over the notes (RAG with vector, keyword and graph retrieval) is in scope
+and is being designed (REQUIREMENTS FR11). A FastAPI backend and a Temporal worker (inside the backend process) run each job as a
 durable workflow; agents are `claude -p` subprocesses; Postgres holds drafts, jobs, settings
 and a rebuildable index of the notes; the notes on disk are the source of truth. A React app
 is the interface.

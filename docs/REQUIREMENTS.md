@@ -8,8 +8,9 @@ requirement is met.
 Synapse is a personal, single-user, local-first tool for studying technical
 subjects. It turns raw input, either pasted material or a bare topic name, into
 a tree of well-structured notes and writes them into Obsidian vaults, one vault
-per domain. Obsidian is the viewer and editor; Synapse is the ingestion and
-authoring engine.
+per domain, and then helps the owner study from those notes by answering
+questions grounded in them. Obsidian is the viewer and editor; Synapse is the
+ingestion and authoring engine and the study companion.
 
 ## 2. Scope
 
@@ -19,14 +20,16 @@ authoring engine.
 - Keeping the owner in control through an outline approval and a draft approval.
 - Running several jobs asynchronously, surviving restarts, and showing progress.
 - Per-agent model and effort configuration, and owner-defined domains.
+- Study chat over the notes (retrieval-augmented generation), using semantic
+  (vector) search, keyword search and the note graph to find what to answer from.
 
 **Out of scope**
-- Viewing or editing notes, graph visualisation, or chat (Obsidian does these).
+- Viewing or editing notes, or graph visualisation (Obsidian does these).
 - Any use of git by the application. Vault contents are never committed.
 - Version history of notes or drafts beyond the current draft.
 - LLM providers other than Claude Code.
 - Authentication, multiple users, or hosting.
-- Embeddings or vector search.
+- Chat about anything other than studying the notes in the vaults.
 
 ## 3. Functional requirements
 
@@ -180,6 +183,18 @@ authoring engine.
   app. The model is chosen from the list Claude Code accepts (pinned versions and
   "latest" aliases); any other value is refused. The researcher and planner also expose their web-search budgets.
 - FR10.2 Domain management as in FR1.
+
+### FR11: Study chat
+In scope; the detailed requirements and design are still to be written. The goal:
+- FR11.1 The owner can ask study questions about the notes in a vault, such as
+  the prerequisites of a topic, an explanation of a topic, a worked example, or
+  how two topics compare.
+- FR11.2 Answers are grounded in the owner's notes, and they cite the notes they
+  drew on.
+- FR11.3 Retrieval may use semantic (vector) search, keyword search and the
+  note graph (parents, subtopics, and prerequisite and contrast links).
+- FR11.4 The index chat retrieves from is derived from the vault files and can
+  be rebuilt from them, like the note index (NFR5).
 
 ## 4. Non-functional requirements
 
