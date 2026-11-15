@@ -179,22 +179,40 @@ ingestion and authoring engine and the study companion.
   is a merge against the file on disk.
 
 ### FR10: Settings
-- FR10.1 Each of the twelve agent roles has its own model and effort, editable in the
+- FR10.1 Each of the seventeen agent roles has its own model and effort, editable in the
   app. The model is chosen from the list Claude Code accepts (pinned versions and
-  "latest" aliases); any other value is refused. The researcher and planner also expose their web-search budgets.
+  "latest" aliases); any other value is refused. The researcher and planner also expose their web-search budgets, and the chat
+  orchestrator, navigator and reader expose their step limits and the per-turn spending cap.
 - FR10.2 Domain management as in FR1.
 
 ### FR11: Study chat
-In scope; the detailed requirements and design are still to be written. The goal:
-- FR11.1 The owner can ask study questions about the notes in a vault, such as
-  the prerequisites of a topic, an explanation of a topic, a worked example, or
-  how two topics compare.
-- FR11.2 Answers are grounded in the owner's notes, and they cite the notes they
-  drew on.
-- FR11.3 Retrieval may use semantic (vector) search, keyword search and the
-  note graph (parents, subtopics, and prerequisite and contrast links).
-- FR11.4 The index chat retrieves from is derived from the vault files and can
-  be rebuilt from them, like the note index (NFR5).
+- FR11.1 The owner can start a chat over one or more vaults and ask study questions:
+  explain a topic, the prerequisites of a topic, a worked example, how two topics
+  compare, or a scenario whose answer lies in notes the question does not name
+  ("how does Gmail check that a username is free?" answered from a Bloom filter note).
+- FR11.2 Answers are drawn from the owner's notes and cite the note and section of
+  each passage they use. Material that is not from the notes is labelled as general
+  knowledge. Concepts the vaults do not cover are listed as gaps.
+- FR11.3 Retrieval is agentic and needs no vectors. An orchestrator agent decides
+  each step: send a navigator agent to find the relevant notes from the map of the
+  vault (titles, summaries and links), send reader agents to extract passages from
+  those notes, ask the owner a clarifying question, or answer. Subagents act through
+  tools that the backend runs for them.
+- FR11.4 Every draft answer is checked by a verifier agent against the passages it
+  cites. A failing draft returns to the orchestrator with the issues, at most two
+  rounds; a draft that still fails reaches the owner with its flags shown.
+- FR11.5 A chat remembers its own conversation, so follow-ups such as "give me an
+  example of that" work and reuse passages already fetched. Chats share nothing with
+  each other. Long chats keep a running summary of older messages.
+- FR11.6 Notes are read from the vault files at the time of the question, so the
+  owner's latest edits are used. Chat never changes a vault or the note index.
+- FR11.7 Asking returns at once; the answer is worked out in the background and the
+  chat shows which step it is on. A chat runs one answer at a time. A failed or
+  interrupted answer shows a plain-language reason.
+- FR11.8 Each turn has limits on agent steps and spending, and records its cost.
+  Messages over 8,000 characters are rejected with a message.
+- FR11.9 The owner can list, open and delete chats. Deleting a chat removes its
+  messages and the passages it stored.
 
 ## 4. Non-functional requirements
 
@@ -205,12 +223,13 @@ In scope; the detailed requirements and design are still to be written. The goal
   subscription.
 - **NFR3 Untrusted web content.** Text an agent reads from the web is treated as
   data. Only the planner, researcher and reference finder have web tools, and no
-  agent has file tools.
+  agent has file tools. Chat agents have no built-in tools; the backend reads notes
+  for them, read-only. No agent both reads chat data and browses the web.
 - **NFR4 Durable.** Work survives crashes and restarts. Infrastructure failures
   are retried with backoff; shape errors in agent output are re-asked at most twice.
 - **NFR5 Files are the truth.** The notes on disk are the source of truth. The
-  database holds drafts, jobs, settings and a note index that can be rebuilt from
-  the vaults at any time.
+  database holds drafts, jobs, chats, settings and a note index that can be rebuilt
+  from the vaults at any time.
 - **NFR6 Safe writes.** Files are written atomically, so a crash never leaves a
   half-written note, and under a per-vault lock so writers never interleave.
 - **NFR7 Observable.** Each significant event is logged as a readable sentence with

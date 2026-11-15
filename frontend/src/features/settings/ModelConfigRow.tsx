@@ -18,7 +18,9 @@ export function ModelConfigRow({ config, models }: { config: AgentConfig; models
   );
 
   const parsed = Object.fromEntries(budgets.map((b) => [b.key, Number(params[b.key])]));
-  const badBudget = budgets.find((b) => !Number.isInteger(parsed[b.key]) || parsed[b.key] <= 0);
+  const badBudget = budgets.find(
+    (b) => !Number.isFinite(parsed[b.key]) || parsed[b.key] <= 0 || (!b.decimal && !Number.isInteger(parsed[b.key])),
+  );
   const dirty =
     model !== config.model ||
     effort !== config.effort ||
@@ -72,7 +74,7 @@ export function ModelConfigRow({ config, models }: { config: AgentConfig; models
           {budgets.map((b) => (
             <Field key={b.key} label={b.label} hint={b.hint}>
               {(c) => (
-                <TextInput {...c} inputMode="numeric" value={params[b.key]} onChange={(e) => setParams({ ...params, [b.key]: e.target.value })} className="w-36" />
+                <TextInput {...c} inputMode={b.decimal ? "decimal" : "numeric"} value={params[b.key]} onChange={(e) => setParams({ ...params, [b.key]: e.target.value })} className="w-36" />
               )}
             </Field>
           ))}
@@ -85,7 +87,7 @@ export function ModelConfigRow({ config, models }: { config: AgentConfig; models
               <Button variant="primary" size="sm" loading={save.isPending} disabled={Boolean(badBudget)} onClick={() => save.mutate()}>
                 Save
               </Button>
-              {badBudget ? <span className="text-[13px] text-danger">{badBudget.label} must be a whole number above zero.</span> : null}
+              {badBudget ? <span className="text-[13px] text-danger">{badBudget.label} must be {badBudget.decimal ? "a number" : "a whole number"} above zero.</span> : null}
             </>
           ) : save.isSuccess ? (
             <span className="text-[13px] text-ok" role="status">Saved. New jobs use this from now on.</span>

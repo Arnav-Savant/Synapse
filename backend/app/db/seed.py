@@ -29,6 +29,11 @@ _DEFAULTS: dict[str, tuple[str, str, dict]] = {
     "validator": ("claude-sonnet-5-5", "medium", {}),
     "profile_builder": ("claude-sonnet-5-5", "medium", {}),
     "link_pruner": ("claude-haiku-5-5", "low", {}),
+    "chat_orchestrator": ("claude-sonnet-5-5", "medium", {"max_steps": 8, "max_verify_rounds": 2, "budget_usd": 1.0}),
+    "navigator": ("claude-sonnet-5-5", "medium", {"max_steps": 3}),
+    "reader": ("claude-haiku-5-5", "low", {"max_steps": 3}),
+    "answer_verifier": ("claude-sonnet-5-5", "medium", {}),
+    "chat_summarizer": ("claude-haiku-5-5", "low", {}),
 }
 
 

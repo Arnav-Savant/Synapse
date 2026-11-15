@@ -172,3 +172,54 @@ class NoteDraft(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     __table_args__ = (UniqueConstraint("job_id", "domain_id", "node_key", name="uq_note_drafts_job_domain_node"),)
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    domain_slugs: Mapped[list] = mapped_column(JSONB, default=list)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    summarized_through: Mapped[int] = mapped_column(Integer, default=0)  # how many messages the summary covers
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(10))  # owner | assistant
+    kind: Mapped[str] = mapped_column(String(10), default="answer")  # answer | question
+    text: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(10))  # sent | pending | answered | failed
+    step: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    citations: Mapped[list] = mapped_column(JSONB, default=list)  # [{ref, domain, title, heading}]
+    gaps: Mapped[list] = mapped_column(JSONB, default=list)
+    flags: Mapped[list] = mapped_column(JSONB, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    __table_args__ = (UniqueConstraint("session_id", "position", name="uq_chat_messages_session_position"),)
+
+
+class ChatEvidence(Base):
+    __tablename__ = "chat_evidence"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
+    message_id: Mapped[str] = mapped_column(String(36), ForeignKey("chat_messages.id", ondelete="CASCADE"))
+    ref: Mapped[int] = mapped_column(Integer)
+    domain_slug: Mapped[str] = mapped_column(String(100))
+    note_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # no FK: the note may be deleted later
+    note_title: Mapped[str] = mapped_column(String(200))
+    heading: Mapped[str] = mapped_column(String(200))
+    excerpt: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (UniqueConstraint("session_id", "ref", name="uq_chat_evidence_session_ref"),)

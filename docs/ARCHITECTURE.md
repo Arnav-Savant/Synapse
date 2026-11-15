@@ -5,8 +5,10 @@ must do; [`SETUP.md`](SETUP.md) covers running it.
 
 ## 1. Shape of the system
 
-Synapse is an ingestion and authoring engine. Raw input goes in; linked Markdown
-notes come out, written into Obsidian vaults that the owner opens separately.
+Synapse is an ingestion and authoring engine and a study companion. Raw input goes in;
+linked Markdown notes come out, written into Obsidian vaults that the owner opens
+separately. The owner can then study by chatting with agents that answer from those
+notes (§12).
 
 ```
 Browser (React) ──HTTP──▶ FastAPI backend (host, 127.0.0.1:8000)
@@ -21,16 +23,21 @@ Browser (React) ──HTTP──▶ FastAPI backend (host, 127.0.0.1:8000)
                                                       Obsidian ───────────────▶ reads the same folders
 ```
 
-Four principles shape everything below.
+Five principles shape everything below.
 
 1. **Files are the truth.** A note exists because its Markdown file exists. Postgres
    holds a derived index that can be rebuilt by scanning the vaults, plus drafts,
-   jobs and settings.
+   jobs, chats and settings.
 2. **Agents never write files.** An agent returns structured output. Deterministic
    code validates it, assembles the file, and is the only code that writes to a vault.
-3. **Code decides control flow.** Workflows are deterministic. No model chooses which
-   step runs next; code routes on structured results and on the owner's decisions.
-4. **Nothing enters a vault unapproved,** and nothing the owner edited is overwritten.
+3. **Ingest is deterministic.** The ingest workflow decides control flow in code. No
+   model chooses which ingest step runs next; code routes on structured results and on
+   the owner's decisions, because a mistake there reaches the vault.
+4. **Chat is agentic.** Chat only reads, so its agents decide what happens next: an
+   orchestrator agent chooses which subagent to delegate to, when it has enough, and
+   when to answer. The chat runtime only carries out the actions the agents choose,
+   within fixed limits (§12).
+5. **Nothing enters a vault unapproved,** and nothing the owner edited is overwritten.
 
 ### Why the backend runs on the host
 
@@ -51,17 +58,18 @@ backend/
     db/                    ORM models, first-run seeding
     schemas/               pydantic models for API payloads and agent output
     repositories/          data access: the only code that touches tables
-    services/              business logic that combines repositories, agents and the vault
+    services/              business logic that combines repositories, agents and the vault;
+                           chat_runtime.py runs the chat agents' actions (§12)
     vault/                 pure library for note files: titles, paths, wikilinks, frontmatter, assembly, atomic store, locks
     engines/               the `claude -p` wrapper
-    agents/                one module per agent role: prompt builder and output schema
+    agents/                one module per agent role: prompt builder and output (or action) schema
     workflows/             Temporal workflows, activities, worker and client
     api/                   thin HTTP routes
 frontend/src/
   api/                     typed clients, one per backend area
   design/                  tokens and primitives
   shell/                   sidebar and page frame
-  features/                ingest, jobs, outline, drafts, notes, settings
+  features/                ingest, jobs, outline, drafts, notes, chat, settings
 docker-compose.yml         Postgres, Temporal, Temporal UI
 ```
 
@@ -75,9 +83,10 @@ Workflow activities are thin: they take ids, load state, call a service, and rec
 
 1. Check that `VAULTS_ROOT` is an absolute, existing, writable directory (otherwise exit).
 2. Apply database migrations (`alembic upgrade head`).
-3. Seed the twelve agent role rows that do not exist yet.
+3. Seed the seventeen agent role rows that do not exist yet.
 4. If no domain exists, create the three starter domains and their vault folders.
-5. Reconcile every vault with the note index (§10).
+5. Reconcile every vault with the note index (§10), and mark any chat answer that was
+   still being worked on as failed (§12.6).
 6. Connect to Temporal, retrying for about fifteen seconds (otherwise exit with a hint).
 7. Start the admission workflow if it is not running (§5.3).
 8. Mark any active job whose workflow no longer exists as failed, and release its slot.
@@ -99,6 +108,9 @@ All tables live in one Postgres instance, which Temporal shares for its own data
 | `note_drafts` | one row per job, domain and node: assembled file text, title, parents, frontmatter, kind (`new` or `merge`), target path, merge target and base hash, validator flags, dossier, stage (`researched`, `written`, `validated`, `stale`) |
 | `notes` | the index: id, domain, title, path (relative to the vault), aliases, summary, content hash, topic id, creating job, `user_modified`, and a generated full-text vector |
 | `note_links` | the index of links between notes: source, destination (if resolved), destination title, kind (`parent`, `related`, `body`) |
+| `chat_sessions` | one row per chat: title, the domains it reads, the running summary of older messages and the position it covers |
+| `chat_messages` | the messages of a chat in order: role (`owner` or `assistant`), text, status (`pending`, `answered`, `failed`), current step, citations, gaps, verifier flags, error, cost |
+| `chat_evidence` | the passages fetched during a chat: a per-chat reference number, domain, note id and title, section heading, the excerpt, and the message that fetched it |
 
 Job statuses are `queued`, `running`, `awaiting_owner`, `completed`, `failed`,
 `cancelled`. Steps are `classify`, `outline`, `place`, `overlap`, `outline_gate`, `research`,
@@ -107,6 +119,9 @@ Job statuses are `queued`, `running`, `awaiting_owner`, `completed`, `failed`,
 `notes` has a full-text GIN index, a trigram index on the title (`pg_trgm`), and a
 unique index on `(domain, lower(title))`. Draft rows are overwritten when regenerated
 and deleted when the job ends; note text is not stored in Postgres once committed.
+The one exception is `chat_evidence`: the excerpts an answer was built from belong to
+the chat, so a chat can still show its sources later. They are deleted with the chat
+and are never read back as notes.
 
 ## 5. The ingest workflow
 
@@ -205,8 +220,15 @@ in Settings. The defaults:
 | `profile_builder` | Draft a domain profile | none | Sonnet, medium |
 | `link_pruner` | Of one note's Related entries, keep only the prerequisites and contrasts | none | Haiku, low |
 | `placer` | Choose the parent notes above a topic and which existing notes join it | none | Sonnet, low |
+| `chat_orchestrator` | Lead a chat turn: delegate, judge the evidence, write the answer | none (chat actions, §12) | Sonnet, medium |
+| `navigator` | Find the notes that could answer a question, from the vault map | none (chat tools, §12) | Sonnet, medium |
+| `reader` | Extract the passages that matter from the chosen notes | none (chat tools, §12) | Haiku, low |
+| `answer_verifier` | Check a draft answer against its evidence | none | Sonnet, medium |
+| `chat_summarizer` | Fold a chat's older messages into its running summary | none | Haiku, low |
 
-"Web" means `WebSearch` and `WebFetch`, and nothing else.
+"Web" means `WebSearch` and `WebFetch`, and nothing else. The chat agents get no built-in
+tools at all: their tools are functions in the backend that the chat runtime runs when an
+agent asks for them (§12.3).
 
 The models a role may use are a fixed list in `agent_config_service`: four pinned versions (Fable 5.1,
 Opus 5.5, Sonnet 5.5, Haiku 5.5) and the four aliases that track the newest release (`fable`, `opus`,
@@ -463,7 +485,176 @@ domain's writer as the invariant, and each writer produces the note through its 
 briefly naming the other domains' concerns. The copies share a `topic_id` and are never linked
 across vaults.
 
-## 12. HTTP API
+## 12. Study chat
+
+The owner studies by asking questions in a chat: "explain Raft", "what do I need before
+consistent hashing?", or a scenario such as "how does Gmail's sign-up check usernames?",
+where the answer lives in notes the question never names (Bloom filters). Chat is
+retrieval-augmented generation without vectors. Agents reason over the vault map to find
+the right notes, read them, and answer from them with citations.
+
+### 12.1 Agents and the runtime
+
+| Agent | Thinks about | Acts by returning |
+|---|---|---|
+| `chat_orchestrator` | What is being asked, which subagent to send, whether the evidence is enough | `delegate_navigator`, `delegate_readers`, `recall`, `ask_owner` or `answer` |
+| `navigator` | Which notes in which clusters could hold the answer | `search_vault` or `finish` (notes to read, each with a reason, plus concepts the vaults do not cover) |
+| `reader` | Which passages of the given notes matter for the goal | `read_note` or `finish` (verbatim excerpts with note and heading) |
+| `answer_verifier` | Whether every claim in a draft answer is supported and the question is answered | `pass`, or `revise` with specific issues |
+| `chat_summarizer` | How to fold older messages into the running summary | the new summary |
+
+Each agent is one `claude -p` call through the existing engine, with its own model and
+effort in Settings, and each reply is validated by `run_structured` (§6.2). The **chat
+runtime** (`services/chat_runtime.py`) is the agents' hands. It calls an agent, carries
+out the action or tool call the agent returned, gives the result back as an observation,
+and calls the agent again. It decides nothing about relevance or routing. Subagents never
+talk to each other: every handover goes through the orchestrator, which may drop picks,
+add its own, re-send the navigator, or skip reading entirely.
+
+### 12.2 A turn
+
+```
+owner message ─▶ ORCHESTRATOR ◀──────────────────── observations ────────────────────┐
+                   │ action                                                           │
+                   ├─ delegate_navigator(task) ─▶ NAVIGATOR (map in its prompt) ──────┤
+                   ├─ delegate_readers(tasks)  ─▶ READER ×1–4 in parallel             │
+                   │                               (note text in its prompt) ─────────┤
+                   ├─ recall(refs)             ─▶ older evidence text ────────────────┤
+                   ├─ ask_owner(question)      ─▶ the owner (end of turn)             │
+                   └─ answer(draft)            ─▶ VERIFIER ─ pass ─▶ the owner         │
+                                                     └ revise(issues) ────────────────┘
+```
+
+A typical scenario question takes six calls: orchestrator, navigator, orchestrator,
+reader, orchestrator (draft), verifier. A follow-up answered from evidence the chat
+already holds takes two calls: orchestrator (draft) and verifier.
+
+### 12.3 Actions and tools
+
+Agents have no built-in tools. An agent acts by returning one JSON object naming an
+action or tool and its arguments. The runtime validates the object against the agent's
+schema (a discriminated union on `action`), runs the action, and appends
+`{action, arguments, result}` to the agent's log, which is resent on the next call
+because calls do not keep sessions. Each agent run ends when the agent returns its
+final action (`answer`, `ask_owner`, `finish`, or the verifier's verdict) or reaches its
+step limit.
+
+| Agent | Action | What the runtime does |
+|---|---|---|
+| orchestrator | `delegate_navigator(task)` | Runs a navigator with a task that stands on its own (pronouns resolved from the conversation) |
+| orchestrator | `delegate_readers([{notes, goal}])` | Runs one reader per task, at most four, in parallel |
+| orchestrator | `recall(refs)` | Puts the full text of earlier evidence back into the orchestrator's prompt |
+| orchestrator | `ask_owner(question)` | Ends the turn with a clarifying question |
+| orchestrator | `answer(text, gaps)` | Sends the draft to the verifier |
+| navigator | `search_vault(terms)` | Scans the chat's vault files for the terms, case-insensitively, and returns up to 20 hits (domain, title, heading, a 300-character snippet) |
+| navigator | `finish(picks, missing)` | Returns at most 12 notes `{domain, title, reason}` and the concepts no note covers |
+| reader | `read_note(domain, title)` | Adds one more note's text, for a `[[link]]` worth following |
+| reader | `finish(passages)` | Returns `{domain, title, heading, excerpt}` items; each becomes evidence |
+
+Code enforces these rules, and a violation becomes a re-ask through `run_structured`,
+like the placer's checks (§8.3):
+
+- a navigator pick must be a note in the map, matched by title key within its domain;
+- a reader excerpt must occur in that note's text, compared after collapsing whitespace,
+  so evidence is quoted, never paraphrased;
+- every `[E#]` reference in a draft answer must be evidence the chat holds.
+
+### 12.4 The vault map and reading notes
+
+**The map** is built from `notes` and `note_links` when the navigator is called, so it is
+never stale and is not stored. For each domain of the chat it lists every note once, as a
+tree under its first parent, with its summary and its related titles:
+
+```
+# system-design
+- Probabilistic Data Structures: space-efficient approximate structures
+  - Bloom Filter: set membership with false positives, never false negatives  [related: Cuckoo Filter, Hashing]
+- Caching Strategies: …
+```
+
+A note with several parents also shows `(also under X)`. A note the owner wrote in
+Obsidian has no summary, so it appears by title only. The navigator sees the whole map
+at once, so it usually finishes in one step. Exploring a very large map in parts is not
+built yet.
+
+**Reading** never goes through an agent's own tools. A reader is given notes as
+`(domain, title)`. The runtime looks each one up in the index, resolves its path with
+`resolve_in_vault`, reads the file read-only, and drops the frontmatter. The text is
+always the file as it is now, including the owner's latest edits. A note that is missing
+from the index or from disk becomes an observation ("not found; a rescan may help"), not
+a failure. `search_vault` scans the `.md` files of the chat's vaults directly and skips
+dot-folders, as reconcile does.
+
+### 12.5 Conversation memory
+
+Memory lives within one chat only; chats never share anything. On each turn the
+orchestrator receives:
+
+- the chat's running summary, which covers everything older than the recent messages;
+- the last six messages, word for word;
+- the evidence the chat holds: the full text of the most recent excerpts up to 40,000
+  characters, and older ones by reference, title and heading only, which `recall` can
+  bring back;
+- the new message and the log of this turn's actions.
+
+Subagents never see the conversation. The orchestrator writes each task so it stands on
+its own. After an answer is stored, if more than twelve messages are not covered by the
+summary, the summarizer folds all but the last six into it. This happens after the owner
+already has the answer, so it never delays one.
+
+### 12.6 Running a turn
+
+A turn is interactive and short-lived, so it runs as a background task in the backend
+process, not as a Temporal workflow. `POST /chats/{id}/messages` stores the owner's
+message and a `pending` assistant message, starts the task, and returns at once. The
+frontend polls the chat while a message is pending and shows its `step` ("Thinking",
+"Finding notes", "Reading notes", "Checking the answer"). A chat has at most one pending
+turn; another message while one is pending is refused with 409.
+
+The task catches every error at its top level. It logs the traceback, marks the message
+`failed` with a plain-language reason, and leaves the backend serving. At startup, any
+message still `pending` was interrupted by a restart and is marked `failed` ("interrupted
+by a restart; ask again"). The cost of every agent call in a turn is summed onto the
+assistant message.
+
+### 12.7 Verification loop
+
+Every draft goes to the verifier; the orchestrator cannot skip it. The verifier receives
+the question, the draft and the evidence the draft cites. It checks that:
+
+- each claim drawn from the notes is supported by the excerpt it cites;
+- material that is not from the notes is labelled as general knowledge;
+- the question is fully answered.
+
+On `revise`, the issues return to the orchestrator as an observation, and the orchestrator
+decides the fix: fetch more, or rewrite. There are at most two revise rounds, ending early
+when the same issues come back. A draft that still fails reaches the owner with the
+verifier's flags shown, never hidden. An answer shows its citations as note title and
+section, and lists its gaps (concepts the vaults do not cover) so the owner can ingest
+them.
+
+### 12.8 Limits and safety
+
+- **Step limits:** the orchestrator has 8 actions per turn; a navigator or reader has 3
+  steps; the verifier has 2 revise rounds; each turn has a spending cap of $1.00. These
+  values sit in the roles' `params` and can be edited in Settings. When a limit is
+  reached, the orchestrator gets one final call in which only `answer` and `ask_owner`
+  are allowed.
+- **Size limits:** a message is at most 8,000 characters; one reader task is given at
+  most 120,000 characters of note text, and a larger task is refused with an observation
+  asking the orchestrator to split it.
+- **Note text is untrusted.** Notes contain material researched from the web. Every chat
+  prompt marks note text and excerpts as data, not instructions. No chat agent has any
+  built-in tool, so a chat agent can read the owner's notes but has no way to send
+  anything out, and the agents that browse the web never see chat data.
+- **Read-only.** Chat never writes a vault file or an index row.
+- **Logging** records turn start and end, each action with its agent, counts and
+  duration, and the turn's cost. Questions, answers and note text are never logged.
+
+Not built yet: a SQL agent for questions about the notes as data ("what did I add last
+week?"), vector search, and exploring a large map in parts.
+
+## 13. HTTP API
 
 All routes are under `/api`.
 
@@ -482,16 +673,19 @@ All routes are under `/api`.
 | `POST /notes/delete-preview`, `POST /notes/delete` | Preview and perform a delete |
 | `GET /notes/tidy-preview?domain=`, `POST /notes/tidy-review?domain=`, `POST /notes/tidy` | Preview, optionally review with the link pruner, and remove Related links that are redundant |
 | `POST /notes/reconcile` | Rescan the vaults |
+| `GET /chats`, `POST /chats`, `GET /chats/{id}`, `DELETE /chats/{id}` | List, start (with the domains to read), open with its messages and citations, and delete a chat |
+| `POST /chats/{id}/messages` | Ask a question; returns the pending assistant message at once (409 while a turn is pending, 413 over 8,000 characters) |
 
 Submitting a job records it and asks Temporal to start its workflow, then returns; no work
-runs inside a request. Errors use specific statuses with a readable `detail`: 400 invalid
+runs inside a request. Asking in a chat likewise stores the message, starts a background task
+(§12.6) and returns. Errors use specific statuses with a readable `detail`: 400 invalid
 input, 404 not found, 409 conflict or wrong state, 413 input too large, 422 malformed payload,
 502 agent failure, 503 workflow could not start, and 500 for anything unexpected.
 
-## 13. Frontend
+## 14. Frontend
 
 React with TypeScript, Vite and Tailwind, with TanStack Query for server state and no router
-(four top-level views held in state; the two approval screens open from inside Jobs).
+(five top-level views held in state; the two approval screens open from inside Jobs).
 
 - `design/` holds the tokens (a cool grey-green neutral palette and one verdigris accent, with
   light and dark values that follow the OS) and the primitives (button, chip, card, form fields,
@@ -501,10 +695,13 @@ React with TypeScript, Vite and Tailwind, with TanStack Query for server state a
 - `features/` has one folder per screen. Pure logic (outline edits, status mapping, decision
   building, markdown preparation) lives in plain modules beside the components.
 - The job list polls every three seconds and the sidebar count shares that one query.
+- `features/chat/` holds the chat screen: the list of chats, the conversation with each
+  answer's citations, gaps and verifier flags, and the composer. It polls the open chat every
+  1.5 seconds while an answer is pending and shows the current step.
 - Fonts are self-hosted: Instrument Sans for the interface, Newsreader for rendered note
   previews, JetBrains Mono for ids and paths.
 
-## 14. Error handling and logging
+## 15. Error handling and logging
 
 **Errors.** Each layer raises its own typed exceptions (repositories: not found or already
 exists; services: invalid input, wrong state, in use, storage; agents: unusable output;
@@ -526,17 +723,20 @@ it and the reason when it is not obvious, written once by the layer that owns th
 
 Note bodies, prompts, fetched web content and secrets are never logged; sizes and counts are.
 
-## 15. Security boundaries
+## 16. Security boundaries
 
 - The backend binds to `127.0.0.1`, has no authentication, and accepts only the configured
   frontend origin. Temporal and Postgres are published on `127.0.0.1` only.
 - Agents have no file tools, and tools are an explicit allow-list per call. Only three roles may
   browse, and what they read is treated as untrusted data.
+- Chat agents have no built-in tools at all. The chat runtime reads notes for them, read-only,
+  by `(domain, title)` through the index and `resolve_in_vault`, never by a path an agent
+  supplies. No agent both reads chat data and browses the web (§12.8).
 - Every write path is checked to resolve inside its vault, after following symlinks.
 - Cited URLs are verified, and the liveness check refuses local and private addresses.
 - Vault contents and `VAULTS_ROOT` are never committed, and the application never runs git.
 
-## 16. Limits and defaults
+## 17. Limits and defaults
 
 | Setting | Value |
 |---|---|
@@ -553,8 +753,19 @@ Note bodies, prompts, fetched web content and secrets are never logged; sizes an
 | Existing notes attached under a parent at once | 8 |
 | References per note | at most 8 |
 | Note title length | 120 characters |
+| Chat message | 8,000 characters |
+| Chat orchestrator actions per turn | 8, then one final call that must answer |
+| Navigator and reader steps per run | 3 |
+| Readers in parallel per delegation | 4 |
+| Note text given to one reader | 120,000 characters |
+| Notes a navigator may pick | 12 |
+| `search_vault` hits | 20 |
+| Chat verifier revise rounds | 2 |
+| Spending cap per chat turn | $1.00 |
+| Recent chat messages sent word for word | 6; the summary is refreshed beyond 12 |
+| Evidence text in the orchestrator's prompt | 40,000 characters |
 
-## 17. Engineering standards
+## 18. Engineering standards
 
 These apply to every change.
 
@@ -569,13 +780,13 @@ These apply to every change.
   status mapping take data in and return data out, with no I/O.
 - **Typed exceptions, handled where they can be acted on**, and mapped centrally to HTTP responses.
   Never swallowed, never left as a raw traceback to the caller, no bare `except`.
-- **Logging as described in §14**, with meaningful lines and not per-function chatter.
+- **Logging as described in §15**, with meaningful lines and not per-function chatter.
 - **Files live in the folder their responsibility maps to.** No catch-all `utils` module.
 - **Naming says what a thing is**; no single-letter names outside a tight local scope.
 - **Workflow code stays deterministic.** It routes on results; anything with I/O or randomness is an
   activity, and every activity is safe to re-run.
 
-## 18. Verifying a change
+## 19. Verifying a change
 
 The repository has no automated test suite. A change is checked by running it:
 
