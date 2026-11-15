@@ -99,7 +99,7 @@ async def run_structured(
             last_error = exc
             logger.warning(
                 "agent %s (job %s): reply had the wrong shape (attempt %d/%d): %s",
-                role, job_id[:8], attempt, max_shape_retries + 1, _short(exc),
+                role, job_id[:8], attempt, max_shape_retries + 1, type(exc).__name__,
             )
             previous = result.result_text.strip()
             attempt_prompt = (

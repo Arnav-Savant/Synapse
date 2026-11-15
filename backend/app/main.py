@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from app.agents.runner import AgentOutputError
 from app.api.agent_config import router as agent_config_router
+from app.api.chats import router as chats_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.notes import router as notes_router
@@ -29,6 +30,7 @@ from app.db.seed import seed_default_agent_configs, seed_default_domains
 from app.engines.claude_code_engine import ClaudeCodeEngineError
 from app.engines.factory import build_engine
 from app.repositories.agent_config_repo import AgentConfigNotFoundError
+from app.repositories.chat_repo import ChatMessageNotFoundError, ChatNotFoundError
 from app.repositories.domain_repo import DomainExistsError, DomainNotFoundError
 from app.repositories.job_repo import JobNotFoundError
 from app.repositories.note_draft_repo import NoteDraftNotFoundError
@@ -41,6 +43,12 @@ from app.services.reconcile_service import reconcile_all
 from app.workflows.client import TemporalUnavailableError, ensure_admission_started, get_client
 from app.workflows.worker import run_worker
 from app.services.agent_config_service import AgentConfigValidationError
+from app.services.chat_service import (
+    ChatBusyError,
+    ChatMessageTooLongError,
+    InvalidChatError,
+    fail_interrupted_turns,
+)
 from app.services.domain_service import DomainInUseError, InvalidDomainError, VaultFolderError
 
 configure_logging()
@@ -91,6 +99,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         # A reconcile problem must never keep the app from starting; the Notes page can re-run it.
         logger.exception("startup reconcile failed; continuing without it")
+
+    try:
+        async for session in postgres_connection.get_session():
+            interrupted = await fail_interrupted_turns(session)
+        if interrupted:
+            logger.warning("%d chat answer(s) were interrupted by the restart and marked failed", interrupted)
+    except Exception:
+        logger.exception("startup check of pending chat answers failed; continuing without it")
 
     try:
         client = await get_client(settings)
@@ -158,6 +174,11 @@ app.add_exception_handler(DomainNotFoundError, _json_handler(404, "domain not fo
 app.add_exception_handler(DomainExistsError, _json_handler(409, "domain already exists"))
 app.add_exception_handler(DomainInUseError, _json_handler(409, "domain in use"))
 app.add_exception_handler(InvalidDomainError, _json_handler(400, "invalid domain"))
+app.add_exception_handler(ChatNotFoundError, _json_handler(404, "chat not found"))
+app.add_exception_handler(ChatMessageNotFoundError, _json_handler(404, "chat message not found"))
+app.add_exception_handler(InvalidChatError, _json_handler(400, "invalid chat request"))
+app.add_exception_handler(ChatBusyError, _json_handler(409, "chat is busy"))
+app.add_exception_handler(ChatMessageTooLongError, _json_handler(413, "chat message too long"))
 app.add_exception_handler(JobNotFoundError, _json_handler(404, "job not found"))
 app.add_exception_handler(NoteNotFoundError, _json_handler(404, "note not found"))
 app.add_exception_handler(NoteDraftNotFoundError, _json_handler(404, "draft not found"))
@@ -184,3 +205,4 @@ app.include_router(agent_config_router, prefix="/api")
 app.include_router(domains_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 app.include_router(notes_router, prefix="/api")
+app.include_router(chats_router, prefix="/api")

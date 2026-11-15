@@ -196,6 +196,43 @@ or deleting files in Obsidian. A file you create gets an id so Synapse can track
 it, a note you edited is marked, a moved file is followed, and a deleted file has
 its links cleaned up. This also runs every time the backend starts.
 
+## Chat
+
+**Chat** lets you study from your notes. Press **New chat**, tick one or more vaults, and
+ask. Each chat reads only the vaults you picked, and chats share nothing with each other.
+
+Questions that work well:
+
+- explain a topic ("explain Raft");
+- what you need before it ("what do I need before consistent hashing?");
+- a worked example, or how two topics compare;
+- a scenario whose answer is in notes the question never names. "How does Gmail check that a
+  username is free?" is answered from a Bloom filter note.
+
+Asking returns at once. The answer is worked out in the background, and the chat shows the
+step it is on: *Thinking*, *Finding notes*, *Reading notes* or *Checking the answer*. A chat
+runs one answer at a time, so the box is disabled until the answer arrives. An answer that
+fails shows a plain reason, and you can ask again. A message can be up to 8,000 characters.
+
+What you see in an answer:
+
+- **Numbered markers** in the text point to the **Sources** list below it: the note, the
+  section and the vault each passage came from. Anything that is not from your notes is
+  labelled as general knowledge.
+- **Not in your notes** lists concepts your vaults do not cover. These are good topics to ingest.
+- **A flagged answer** means a checking agent was still not satisfied after two rounds of
+  fixes. The answer is shown anyway, with its concerns listed, so you can judge for yourself.
+- **A question back to you** appears when the question is too unclear to answer. Reply in the
+  same chat.
+- A small cost under each answer shows what it cost. A turn stops at $1.00.
+
+Follow-ups such as "give me an example of that" work, and reuse what was already found.
+Long chats keep a running summary of their older messages.
+
+Answers read your notes as they are now, including edits you just made in Obsidian. Chat
+never changes a vault or the note index. **Delete chat** removes the chat's messages and the
+passages it stored, and is refused while an answer is still being worked out.
+
 ## Settings
 
 **Domains.** Add a domain to create a new vault folder. Each domain has:
@@ -216,7 +253,8 @@ settings but never its notes or folder, and is refused while a job is using it.
 with what it does. The model is chosen from a dropdown of what Claude Code
 offers: pinned versions such as *Opus 5.5*, or *latest* options such as *Opus
 (latest)* that follow the newest release. The researcher and the outline planner also have budgets for
-web searches. Changes apply to jobs from then on.
+web searches. The chat has five roles of its own: the orchestrator, the navigator, the
+reader, the answer checker and the summarizer. Changes apply to jobs and chats from then on.
 
 ## Good to know
 

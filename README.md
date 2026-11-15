@@ -34,6 +34,8 @@ your own Claude subscription.
   never overwrites a file you changed; it merges against the file as it is now.
 - **Clean deletes.** Deleting a note removes the links to it, so Obsidian never
   shows a ghost node, and re-attaches the notes that sat beneath it.
+- **Study in a chat.** Once the notes exist, ask questions in a chat that answers from them,
+  with the note and section cited for each passage and the gaps listed.
 - **Survives restarts.** Jobs run as durable workflows. Stop and restart the
   backend mid-run and each job picks up where it was.
 

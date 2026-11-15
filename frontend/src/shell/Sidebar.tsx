@@ -2,14 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { fetchHealth } from "../api/health";
-import { IngestIcon, JobsIcon, NotesIcon, SettingsIcon } from "../design/icons";
+import { ChatIcon, IngestIcon, JobsIcon, NotesIcon, SettingsIcon } from "../design/icons";
 
-export type View = "ingest" | "jobs" | "notes" | "settings";
+export type View = "ingest" | "jobs" | "notes" | "chat" | "settings";
 
 const ITEMS: { view: View; label: string; icon: ReactNode }[] = [
   { view: "ingest", label: "Ingest", icon: <IngestIcon /> },
   { view: "jobs", label: "Jobs", icon: <JobsIcon /> },
   { view: "notes", label: "Notes", icon: <NotesIcon /> },
+  { view: "chat", label: "Chat", icon: <ChatIcon /> },
   { view: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 

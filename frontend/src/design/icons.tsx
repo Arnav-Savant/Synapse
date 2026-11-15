@@ -26,6 +26,9 @@ export const JobsIcon = (p: SVGProps<SVGSVGElement>) => (
 export const NotesIcon = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}><path d="M5.5 3.5h6l3 3v10h-9z" /><path d="M11.5 3.5v3h3" /></Icon>
 );
+export const ChatIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}><path d="M4 5.5h12v8H9l-3.5 3v-3H4z" /></Icon>
+);
 export const SettingsIcon = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}><path d="M4 6h5M13 6h3M4 14h2M10 14h6" /><circle cx="11" cy="6" r="1.8" /><circle cx="8" cy="14" r="1.8" /></Icon>
 );
