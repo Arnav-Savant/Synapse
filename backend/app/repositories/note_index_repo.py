@@ -274,3 +274,36 @@ async def parent_map(session: AsyncSession, domain_id: str) -> dict[str, set[str
     for title, above in rows:
         out.setdefault(title_key(title), set()).add(title_key(above))
     return out
+
+
+@dataclass(frozen=True)
+class MapRow:
+    title: str
+    summary: str
+    parents: list[str]
+    related: list[str]
+
+
+async def map_rows(session: AsyncSession, domain_id: str) -> list[MapRow]:
+    """Every note of a domain with the titles of its `parent` and `related` links, for the chat vault map.
+    Two queries in all (notes, then their links), not one per note."""
+    notes = (
+        await session.execute(
+            select(Note.synapse_id, Note.title, Note.summary).where(Note.domain_id == domain_id).order_by(func.lower(Note.title))
+        )
+    ).all()
+    links = (
+        await session.execute(
+            select(NoteLink.src_note_id, NoteLink.kind, NoteLink.dst_title)
+            .join(Note, Note.synapse_id == NoteLink.src_note_id)
+            .where(Note.domain_id == domain_id, NoteLink.kind.in_(("parent", "related")))
+        )
+    ).all()
+    parents: dict[str, list[str]] = {}
+    related: dict[str, list[str]] = {}
+    for src, kind, dst_title in links:
+        (parents if kind == "parent" else related).setdefault(src, []).append(dst_title)
+    return [
+        MapRow(title=title, summary=summary or "", parents=parents.get(nid, []), related=related.get(nid, []))
+        for nid, title, summary in notes
+    ]
