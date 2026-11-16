@@ -34,8 +34,13 @@ your own Claude subscription.
   never overwrites a file you changed; it merges against the file as it is now.
 - **Clean deletes.** Deleting a note removes the links to it, so Obsidian never
   shows a ghost node, and re-attaches the notes that sat beneath it.
-- **Study in a chat.** Once the notes exist, ask questions in a chat that answers from them,
-  with the note and section cited for each passage and the gaps listed.
+- **Study in a chat.** Once the notes exist, ask questions in a chat that answers from them. An
+  orchestrator agent decides what to do next and sends a navigator to find the right notes (even
+  when your question never names them), readers to pull out the passages that matter, and a
+  verifier to check the draft against its evidence before you see it. Each answer cites the note
+  and section for every passage and lists the gaps: concepts your vaults do not cover. A chat
+  reads only the vaults you pick, remembers its own conversation with a running summary, and is
+  strictly read-only: it never changes a vault or the note index.
 - **Survives restarts.** Jobs run as durable workflows. Stop and restart the
   backend mid-run and each job picks up where it was.
 
@@ -43,7 +48,8 @@ your own Claude subscription.
 
 ```
 Browser (React) ──HTTP──▶ FastAPI backend (127.0.0.1:8000)
-                              │ starts workflows, sends decisions
+                              │ starts workflows, sends decisions;
+                              │ runs chat turns as background tasks (chat runtime)
                               ▼
                     Temporal server (Docker) ◀──▶ Temporal worker (inside the backend)
                               │                        │
@@ -55,8 +61,15 @@ Browser (React) ──HTTP──▶ FastAPI backend (127.0.0.1:8000)
 ```
 
 The note files in the vaults are the source of truth. Postgres holds drafts,
-jobs, settings and an index of the notes that can be rebuilt from the vaults at
+jobs, chats, settings and an index of the notes that can be rebuilt from the vaults at
 any time.
+
+Two kinds of agent work, with different control. **Ingest is deterministic:** code decides every
+step and routes on structured results and your approvals, because a mistake there reaches a
+vault. **Chat is agentic:** the agents choose the next action (delegate, read more, answer), and
+the chat runtime only carries those actions out within fixed limits of steps, size and spend. No
+agent writes files, chat agents have no built-in tools, and no agent both reads chat data and
+browses the web.
 
 ## Stack
 
